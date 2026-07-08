@@ -63,6 +63,7 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _needsPassword = false;
   bool _joining = false;
   String? _joinError;
+  int _lastWaitingCount = 0;
   final _guestNameCtrl = TextEditingController();
   final _guestPasswordCtrl = TextEditingController();
 
@@ -129,7 +130,27 @@ class _RoomScreenState extends State<RoomScreen> {
       );
     }
     setState(() => _room = provider);
+    _attachWaitingAlert(provider);
     await provider.init();
+  }
+
+  // Proactively surfaces a snackbar to the host the moment someone new
+  // enters the waiting room, instead of relying on them noticing a passive
+  // badge count on the waiting-room icon.
+  void _attachWaitingAlert(RoomProvider provider) {
+    provider.addListener(() {
+      if (!mounted || !provider.isHost) return;
+      final count = provider.waitingList.length;
+      if (count > _lastWaitingCount) {
+        final newest = provider.waitingList.last;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('${newest.displayName} is waiting to join the meeting'),
+          action: SnackBarAction(label: 'View', onPressed: () => showWaitingRoomSheet(context)),
+          duration: const Duration(seconds: 6),
+        ));
+      }
+      _lastWaitingCount = count;
+    });
   }
 
   Future<void> _submitInlineGuestJoin() async {
@@ -163,6 +184,7 @@ class _RoomScreenState extends State<RoomScreen> {
         _displayId = widget.token;
         _room = provider;
       });
+      _attachWaitingAlert(provider);
       await provider.init();
     } on DioException catch (e) {
       final status = e.response?.statusCode;
@@ -262,6 +284,10 @@ class _RoomScreenState extends State<RoomScreen> {
                 ElevatedButton(onPressed: () => context.go('/meetings'),
                     child: const Text('Back to Meetings')),
               ]));
+            }
+
+            if (room.wasRemoved) {
+              return _RemovedView(onLeave: () => context.go('/meetings'));
             }
 
             if (room.isWaitingForAdmission) {
@@ -475,6 +501,29 @@ class _WaitingForHostView extends StatelessWidget {
               style: TextStyle(fontSize: 14, color: VtColors.text2)),
           const SizedBox(height: 24),
           OutlinedButton(onPressed: onLeave, child: const Text('Cancel')),
+        ]),
+      ),
+    );
+  }
+}
+
+class _RemovedView extends StatelessWidget {
+  const _RemovedView({required this.onLeave});
+  final VoidCallback onLeave;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.block_rounded, size: 56, color: VtColors.danger),
+          const SizedBox(height: 24),
+          const Text("You've been removed from the meeting",
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: VtColors.text)),
+          const SizedBox(height: 24),
+          ElevatedButton(onPressed: onLeave, child: const Text('Back to Meetings')),
         ]),
       ),
     );

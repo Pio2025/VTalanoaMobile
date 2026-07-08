@@ -44,6 +44,7 @@ class WebRtcService {
     this.onWaitingRoomUpdate,
     this.onYouAreWaiting,
     this.onAdmitted,
+    this.onRemoved,
     this.onChatMessage,
     this.onPeerMuteStatus,
     this.onPeerCamStatus,
@@ -65,6 +66,7 @@ class WebRtcService {
   final WaitingListCallback? onWaitingRoomUpdate;
   final VoidCallback? onYouAreWaiting;
   final VoidCallback? onAdmitted;
+  final VoidCallback? onRemoved;
   final ChatCallback? onChatMessage;
   final MuteStatusCallback? onPeerMuteStatus;
   final CamStatusCallback? onPeerCamStatus;
@@ -154,6 +156,7 @@ class WebRtcService {
       ..on('error', (e) => vtLog('socket', 'error event: $e'))
       ..on('admitted', (_) { vtLog('socket', 'admitted'); onAdmitted?.call(); _startSfu(); })
       ..on('you-are-waiting', (_) { vtLog('socket', 'you-are-waiting'); onYouAreWaiting?.call(); })
+      ..on('removed-from-meeting', (_) { vtLog('socket', 'removed-from-meeting'); onRemoved?.call(); })
       ..on('waiting-room-update', _onWaitingRoomUpdate)
       ..on('peer-joined', _onPeerJoined)
       ..on('peer-left', _onPeerLeft)
@@ -194,6 +197,11 @@ class WebRtcService {
   void admitAll() {
     vtLog('socket', 'emit admit-all');
     _socket?.emit('admit-all', {});
+  }
+
+  void removeParticipant(String socketId) {
+    vtLog('socket', 'emit remove-participant socketId=$socketId');
+    _socket?.emit('remove-participant', {'socketId': socketId});
   }
 
   void _onPeerJoined(dynamic data) {

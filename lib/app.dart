@@ -13,6 +13,7 @@ import 'features/auth/screens/welcome_screen.dart';
 import 'features/dashboard/screens/meeting_detail_screen.dart';
 import 'features/home/screens/main_shell.dart';
 import 'features/room/screens/room_screen.dart';
+import 'features/splash/screens/splash_screen.dart';
 
 class VtApp extends StatefulWidget {
   const VtApp({super.key});
@@ -27,17 +28,27 @@ class _VtAppState extends State<VtApp> {
   StreamSubscription<Uri>? _linkSub;
   late final GoRouter _router;
 
+  // `checkSession()` can resolve almost instantly (e.g. no stored token),
+  // which otherwise fires the redirect before the splash screen ever paints
+  // a frame. Hold the splash route up for a minimum duration so the logo
+  // and loader are actually visible on every app launch.
+  bool _minSplashElapsed = false;
+
   @override
   void initState() {
     super.initState();
     _auth.checkSession();
     _router = _buildRouter();
     _initDeepLinks();
+    Future.delayed(const Duration(milliseconds: 900), () {
+      _minSplashElapsed = true;
+      _router.refresh();
+    });
   }
 
   GoRouter _buildRouter() {
     return GoRouter(
-      initialLocation: '/welcome',
+      initialLocation: '/splash',
       // Re-runs `redirect` whenever auth state changes, without recreating
       // this GoRouter instance — required so the deep-link listener below
       // can keep calling `.go()` on a stable router reference.
@@ -46,7 +57,10 @@ class _VtAppState extends State<VtApp> {
         final status = auth.status;
         final loc = state.matchedLocation;
         vtLog('router', 'redirect check loc=$loc authStatus=$status');
-        if (status == AuthStatus.unknown) return null;
+        final onSplash = loc == '/splash';
+        if (status == AuthStatus.unknown || !_minSplashElapsed) {
+          return onSplash ? null : '/splash';
+        }
 
         final goingToAuth = loc == '/welcome' || loc == '/login' || loc == '/register';
         final isRoomRoute = loc.startsWith('/room/');
@@ -60,7 +74,7 @@ class _VtAppState extends State<VtApp> {
               return '/room/$token';
             }
           }
-          if (goingToAuth) return '/meetings';
+          if (goingToAuth || onSplash) return '/meetings';
           return null;
         }
 
@@ -69,10 +83,12 @@ class _VtAppState extends State<VtApp> {
         // require an account — only a valid meeting ID and password (if
         // set) — so RoomScreen itself collects a guest name/password when
         // it's reached without a completed guest handshake or a session.
+        if (onSplash) return '/welcome';
         if (!goingToAuth && !isRoomRoute && !isJoinLink) return '/login';
         return null;
       },
       routes: [
+        GoRoute(path: '/splash',    builder: (_, __) => const SplashScreen()),
         GoRoute(path: '/welcome',   builder: (_, __) => const WelcomeScreen()),
         GoRoute(path: '/login',     builder: (_, __) => const LoginScreen()),
         GoRoute(path: '/register',  builder: (_, __) => const RegisterScreen()),

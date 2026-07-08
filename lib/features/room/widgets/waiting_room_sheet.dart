@@ -70,14 +70,21 @@ class WaitingRoomSheet extends StatelessWidget {
                               : null,
                         ),
                         title: Text(p.displayName, style: const TextStyle(color: VtColors.text)),
-                        trailing: ElevatedButton(
-                          onPressed: () => room.admitParticipant(p.socketId),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: VtColors.primary, elevation: 0,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                          IconButton(
+                            tooltip: 'Remove',
+                            icon: const Icon(Icons.close_rounded, color: VtColors.danger),
+                            onPressed: () => room.removeParticipant(p.socketId),
                           ),
-                          child: const Text('Admit'),
-                        ),
+                          ElevatedButton(
+                            onPressed: () => room.admitParticipant(p.socketId),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: VtColors.primary, elevation: 0,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Admit'),
+                          ),
+                        ]),
                       );
                     },
                   ),
