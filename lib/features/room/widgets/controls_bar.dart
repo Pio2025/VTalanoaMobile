@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/room_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../screens/waiting_room_screen.dart';
 
 class ControlsBar extends StatelessWidget {
   const ControlsBar({super.key, required this.onLeave});
@@ -47,6 +48,16 @@ class ControlsBar extends StatelessWidget {
                 onTap: () => room.toggleChat(),
                 badge: room.messages.isNotEmpty ? room.messages.length : null,
               ),
+              if (room.isHost) ...[
+                const SizedBox(width: 6),
+                _CtrlBtn(
+                  icon: Icons.meeting_room_rounded,
+                  label: 'Waiting',
+                  active: true,
+                  onTap: () => openWaitingRoomScreen(context),
+                  badge: room.waitingList.isNotEmpty ? room.waitingList.length : null,
+                ),
+              ],
               const SizedBox(width: 14),
               // End call
               GestureDetector(

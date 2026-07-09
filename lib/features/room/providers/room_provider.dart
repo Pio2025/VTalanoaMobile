@@ -10,6 +10,7 @@ class RemotePeer {
   bool speaking;
   bool isMuted;
   bool isCamOff;
+  bool isCoHost;
 
   RemotePeer({
     required this.socketId,
@@ -18,6 +19,7 @@ class RemotePeer {
     this.speaking = false,
     this.isMuted = false,
     this.isCamOff = false,
+    this.isCoHost = false,
   });
 }
 
@@ -72,6 +74,11 @@ class RoomProvider extends ChangeNotifier {
       onChatMessage: _onChatMessage,
       onPeerMuteStatus: _onPeerMuteStatus,
       onPeerCamStatus: _onPeerCamStatus,
+      onCoHostSelf: _onCoHostSelf,
+      onPeerCoHost: _onPeerCoHost,
+      onForceMuted: _onForceMuted,
+      onForceCamOff: _onForceCamOff,
+      onUnmuteRequest: _onUnmuteRequestReceived,
     );
   }
 
@@ -88,6 +95,18 @@ class RoomProvider extends ChangeNotifier {
   bool _isWaitingForAdmission;
   bool _wasRemoved = false;
   bool _wasSessionReplaced = false;
+  bool _isCoHost = false;
+  bool _disposed = false;
+
+  /// Assigned by the UI (RoomScreen) so the provider can trigger navigation
+  /// to the full-screen waiting room from a flash-message action, without
+  /// the provider needing a BuildContext of its own.
+  VoidCallback? onOpenWaitingRoom;
+
+  String? _flashMessage;
+  String? _flashActionLabel;
+  VoidCallback? _flashAction;
+  int _flashToken = 0;
 
   List<RemotePeer> get peers    => List.unmodifiable(_peers);
   List<ChatMessage> get messages => List.unmodifiable(_messages);
@@ -98,14 +117,92 @@ class RoomProvider extends ChangeNotifier {
   bool get isWaitingForAdmission => _isWaitingForAdmission;
   bool get wasRemoved            => _wasRemoved;
   bool get wasSessionReplaced    => _wasSessionReplaced;
+  bool get isCoHost              => _isCoHost;
+  String? get flashMessage       => _flashMessage;
+  String? get flashActionLabel   => _flashActionLabel;
+  VoidCallback? get flashAction  => _flashAction;
 
   void admitParticipant(String socketId) => _svc.admitParticipant(socketId);
   void admitAll() => _svc.admitAll();
   void removeParticipant(String socketId) => _svc.removeParticipant(socketId);
+  void muteParticipant(String socketId) => _svc.muteParticipant(socketId);
+  void requestUnmute(String socketId) => _svc.requestUnmute(socketId);
+  void requestCamOff(String socketId) => _svc.requestCamOff(socketId);
+  void assignCohost(String socketId) => _svc.assignCohost(socketId);
+  void revokeCohost(String socketId) => _svc.revokeCohost(socketId);
+
+  void _showFlash(String message, {String? actionLabel, VoidCallback? action}) {
+    final token = ++_flashToken;
+    _flashMessage = message;
+    _flashActionLabel = actionLabel;
+    _flashAction = action;
+    notifyListeners();
+    Future.delayed(const Duration(seconds: 5), () {
+      if (_disposed || token != _flashToken) return;
+      _flashMessage = null;
+      _flashActionLabel = null;
+      _flashAction = null;
+      notifyListeners();
+    });
+  }
+
+  void dismissFlash() {
+    _flashToken++;
+    _flashMessage = null;
+    _flashActionLabel = null;
+    _flashAction = null;
+    notifyListeners();
+  }
+
+  void _onCoHostSelf(bool isCoHost) {
+    vtLog('room', 'isCoHost -> $isCoHost');
+    _isCoHost = isCoHost;
+    _showFlash(isCoHost ? 'You are now a co-host' : 'Co-host access was revoked');
+    notifyListeners();
+  }
+
+  void _onPeerCoHost(String socketId, bool isCoHost) {
+    final idx = _peers.indexWhere((p) => p.socketId == socketId);
+    if (idx >= 0) {
+      _peers[idx].isCoHost = isCoHost;
+      notifyListeners();
+    }
+  }
+
+  void _onForceMuted() {
+    _showFlash('The host muted your microphone');
+  }
+
+  void _onForceCamOff() {
+    _showFlash('The host turned off your camera');
+  }
+
+  void _onUnmuteRequestReceived() {
+    _showFlash(
+      'The host asked you to unmute',
+      actionLabel: 'Unmute',
+      action: () {
+        if (!micEnabled) toggleMic();
+        dismissFlash();
+      },
+    );
+  }
 
   void _onWaitingRoomUpdate(List<WaitingParticipant> waiting) {
     vtLog('room', 'waitingList updated: ${waiting.length} waiting');
+    final grew = waiting.length > _waitingList.length;
     _waitingList = waiting;
+    if (grew && waiting.isNotEmpty) {
+      final latest = waiting.last;
+      _showFlash(
+        '${latest.displayName} is waiting to join the meeting',
+        actionLabel: 'View',
+        action: () {
+          dismissFlash();
+          onOpenWaitingRoom?.call();
+        },
+      );
+    }
     notifyListeners();
   }
 
@@ -209,6 +306,7 @@ class RoomProvider extends ChangeNotifier {
 
   @override
   Future<void> dispose() async {
+    _disposed = true;
     await _svc.dispose();
     super.dispose();
   }

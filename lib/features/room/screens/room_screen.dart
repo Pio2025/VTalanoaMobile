@@ -13,7 +13,8 @@ import '../providers/room_provider.dart';
 import '../widgets/controls_bar.dart';
 import '../widgets/chat_panel.dart';
 import '../widgets/video_tile.dart';
-import '../widgets/waiting_room_sheet.dart';
+import '../widgets/participants_sheet.dart';
+import 'waiting_room_screen.dart';
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
@@ -63,7 +64,6 @@ class _RoomScreenState extends State<RoomScreen> {
   bool _needsPassword = false;
   bool _joining = false;
   String? _joinError;
-  int _lastWaitingCount = 0;
   final _guestNameCtrl = TextEditingController();
   final _guestPasswordCtrl = TextEditingController();
 
@@ -129,28 +129,11 @@ class _RoomScreenState extends State<RoomScreen> {
         startWithVideo: widget.startWithVideo,
       );
     }
+    provider.onOpenWaitingRoom = () {
+      if (mounted) openWaitingRoomScreen(context);
+    };
     setState(() => _room = provider);
-    _attachWaitingAlert(provider);
     await provider.init();
-  }
-
-  // Proactively surfaces a snackbar to the host the moment someone new
-  // enters the waiting room, instead of relying on them noticing a passive
-  // badge count on the waiting-room icon.
-  void _attachWaitingAlert(RoomProvider provider) {
-    provider.addListener(() {
-      if (!mounted || !provider.isHost) return;
-      final count = provider.waitingList.length;
-      if (count > _lastWaitingCount) {
-        final newest = provider.waitingList.last;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${newest.displayName} is waiting to join the meeting'),
-          action: SnackBarAction(label: 'View', onPressed: () => showWaitingRoomSheet(context)),
-          duration: const Duration(seconds: 6),
-        ));
-      }
-      _lastWaitingCount = count;
-    });
   }
 
   Future<void> _submitInlineGuestJoin() async {
@@ -179,12 +162,14 @@ class _RoomScreenState extends State<RoomScreen> {
         startWithVideo: widget.startWithVideo,
       );
       if (!mounted) return;
+      provider.onOpenWaitingRoom = () {
+        if (mounted) openWaitingRoomScreen(context);
+      };
       setState(() {
         _needsGuestInfo = false;
         _displayId = widget.token;
         _room = provider;
       });
-      _attachWaitingAlert(provider);
       await provider.init();
     } on DioException catch (e) {
       final status = e.response?.statusCode;
@@ -308,16 +293,28 @@ class _RoomScreenState extends State<RoomScreen> {
               _TopBar(meetingId: _displayId),
               // Main area
               Expanded(
-                child: Row(children: [
-                  // Video grid
-                  Expanded(child: _VideoGrid(room: room)),
-                  // Chat panel (slide in)
-                  if (room.chatOpen)
-                    SizedBox(
-                      width: MediaQuery.of(context).size.width < 600 ? double.infinity : 300,
-                      child: ChatPanel(
-                        selfName: context.read<AuthProvider>().user?.name ?? 'You',
-                        selfId:   context.read<AuthProvider>().user?.userId ?? 0,
+                child: Stack(children: [
+                  Row(children: [
+                    // Video grid
+                    Expanded(child: _VideoGrid(room: room)),
+                    // Chat panel (slide in)
+                    if (room.chatOpen)
+                      SizedBox(
+                        width: MediaQuery.of(context).size.width < 600 ? double.infinity : 300,
+                        child: ChatPanel(
+                          selfName: context.read<AuthProvider>().user?.name ?? 'You',
+                          selfId:   context.read<AuthProvider>().user?.userId ?? 0,
+                        ),
+                      ),
+                  ]),
+                  if (room.flashMessage != null)
+                    Positioned(
+                      top: 12, left: 12, right: 12,
+                      child: _FlashBanner(
+                        message: room.flashMessage!,
+                        actionLabel: room.flashActionLabel,
+                        onAction: room.flashAction,
+                        onDismiss: room.dismissFlash,
                       ),
                     ),
                 ]),
@@ -444,45 +441,61 @@ class _TopBar extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Consumer<RoomProvider>(
-          builder: (_, room, __) => Row(mainAxisSize: MainAxisSize.min, children: [
-            if (room.isHost) ...[
-              _WaitingRoomIconButton(count: room.waitingList.length),
-              const SizedBox(width: 12),
-            ],
-            Text(
-              '${room.peers.length + 1} participant${room.peers.isNotEmpty ? 's' : ''}',
-              style: const TextStyle(fontSize: 12, color: VtColors.text3)),
-          ]),
+          builder: (_, room, __) => GestureDetector(
+            onTap: () => showParticipantsSheet(context),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.people_outline_rounded, size: 20, color: VtColors.text2),
+                const SizedBox(width: 6),
+                Text(
+                  '${room.peers.length + 1} participant${room.peers.isNotEmpty ? 's' : ''}',
+                  style: const TextStyle(fontSize: 12, color: VtColors.text3)),
+              ]),
+            ),
+          ),
         ),
       ]),
     );
   }
 }
 
-class _WaitingRoomIconButton extends StatelessWidget {
-  const _WaitingRoomIconButton({required this.count});
-  final int count;
+class _FlashBanner extends StatelessWidget {
+  const _FlashBanner({
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+    required this.onDismiss,
+  });
+
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final VoidCallback onDismiss;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () => showWaitingRoomSheet(context),
+    return Material(
+      color: VtColors.surface,
+      elevation: 6,
+      borderRadius: BorderRadius.circular(12),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Stack(clipBehavior: Clip.none, children: [
-          const Icon(Icons.people_outline_rounded, size: 22, color: VtColors.text2),
-          if (count > 0)
-            Positioned(
-              right: -6, top: -4,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                decoration: const BoxDecoration(color: VtColors.primary, shape: BoxShape.circle),
-                constraints: const BoxConstraints(minWidth: 14, minHeight: 14),
-                child: Text('$count',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w700)),
-              ),
-            ),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(children: [
+          const Icon(Icons.info_outline_rounded, size: 18, color: VtColors.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: const TextStyle(fontSize: 13, color: VtColors.text)),
+          ),
+          if (actionLabel != null && onAction != null)
+            TextButton(onPressed: onAction, child: Text(actionLabel!)),
+          IconButton(
+            icon: const Icon(Icons.close_rounded, size: 18, color: VtColors.text3),
+            onPressed: onDismiss,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(),
+          ),
         ]),
       ),
     );

@@ -13,6 +13,7 @@ typedef WaitingListCallback = void Function(List<WaitingParticipant> waiting);
 typedef ChatCallback  = void Function(String socketId, String senderName, String message, DateTime time);
 typedef MuteStatusCallback = void Function(String socketId, bool isMuted);
 typedef CamStatusCallback  = void Function(String socketId, bool isCamOff);
+typedef CoHostCallback     = void Function(String socketId, bool isCoHost);
 
 class WaitingParticipant {
   const WaitingParticipant({required this.socketId, required this.displayName, this.photoUrl});
@@ -49,6 +50,11 @@ class WebRtcService {
     this.onChatMessage,
     this.onPeerMuteStatus,
     this.onPeerCamStatus,
+    this.onCoHostSelf,
+    this.onPeerCoHost,
+    this.onForceMuted,
+    this.onForceCamOff,
+    this.onUnmuteRequest,
     this.startWithVideo = true,
   });
 
@@ -72,6 +78,11 @@ class WebRtcService {
   final ChatCallback? onChatMessage;
   final MuteStatusCallback? onPeerMuteStatus;
   final CamStatusCallback? onPeerCamStatus;
+  final void Function(bool isCoHost)? onCoHostSelf;
+  final CoHostCallback? onPeerCoHost;
+  final VoidCallback? onForceMuted;
+  final VoidCallback? onForceCamOff;
+  final VoidCallback? onUnmuteRequest;
 
   sio.Socket? _socket;
   RTCPeerConnection? _pc;
@@ -193,7 +204,35 @@ class WebRtcService {
       ..on('speaking', _onSpeaking)
       ..on('chat-message', _onChatMessage)
       ..on('peer-mute-status', _onPeerMuteStatus)
-      ..on('peer-cam-status', _onPeerCamStatus);
+      ..on('peer-cam-status', _onPeerCamStatus)
+      ..on('mute-request', (_) {
+        vtLog('socket', 'mute-request');
+        if (!_micEnabled) return;
+        toggleMic();
+        onForceMuted?.call();
+      })
+      ..on('unmute-request', (_) {
+        vtLog('socket', 'unmute-request');
+        onUnmuteRequest?.call();
+      })
+      ..on('cam-off-request', (_) {
+        vtLog('socket', 'cam-off-request');
+        if (!_camEnabled) return;
+        toggleCam();
+        onForceCamOff?.call();
+      })
+      ..on('you-are-cohost', (_) { vtLog('socket', 'you-are-cohost'); onCoHostSelf?.call(true); })
+      ..on('cohost-revoked-self', (_) { vtLog('socket', 'cohost-revoked-self'); onCoHostSelf?.call(false); })
+      ..on('cohost-assigned', (d) => _onCoHostChanged(d, true))
+      ..on('cohost-revoked', (d) => _onCoHostChanged(d, false));
+  }
+
+  void _onCoHostChanged(dynamic data, bool isCoHost) {
+    final d = data is Map ? data : {};
+    final sid = d['socketId'] as String?;
+    if (sid == null) return;
+    vtLog('socket', 'cohost-${isCoHost ? 'assigned' : 'revoked'} socketId=$sid');
+    onPeerCoHost?.call(sid, isCoHost);
   }
 
   void _joinRoom() {
@@ -231,6 +270,31 @@ class WebRtcService {
   void removeParticipant(String socketId) {
     vtLog('socket', 'emit remove-participant socketId=$socketId');
     _socket?.emit('remove-participant', {'socketId': socketId});
+  }
+
+  void muteParticipant(String socketId) {
+    vtLog('socket', 'emit mute-request to=$socketId');
+    _socket?.emit('mute-request', {'to': socketId});
+  }
+
+  void requestUnmute(String socketId) {
+    vtLog('socket', 'emit unmute-request to=$socketId');
+    _socket?.emit('unmute-request', {'to': socketId});
+  }
+
+  void requestCamOff(String socketId) {
+    vtLog('socket', 'emit cam-off-request to=$socketId');
+    _socket?.emit('cam-off-request', {'to': socketId});
+  }
+
+  void assignCohost(String socketId) {
+    vtLog('socket', 'emit assign-cohost socketId=$socketId');
+    _socket?.emit('assign-cohost', {'socketId': socketId});
+  }
+
+  void revokeCohost(String socketId) {
+    vtLog('socket', 'emit revoke-cohost socketId=$socketId');
+    _socket?.emit('revoke-cohost', {'socketId': socketId});
   }
 
   void _onPeerJoined(dynamic data) {
