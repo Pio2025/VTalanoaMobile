@@ -15,6 +15,31 @@ class HomeTab extends StatefulWidget {
 class _HomeTabState extends State<HomeTab> {
   final _service = MeetingService();
   bool _starting = false;
+  bool _statsLoading = true;
+  int _liveCount = 0;
+  int _upcomingCount = 0;
+  int _completedCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStats();
+  }
+
+  Future<void> _loadStats() async {
+    try {
+      final page = await _service.listMeetings(perPage: 50);
+      if (!mounted) return;
+      setState(() {
+        _liveCount = page.meetings.where((m) => m.isLive).length;
+        _upcomingCount = page.meetings.where((m) => m.isScheduled).length;
+        _completedCount = page.meetings.where((m) => m.isEnded).length;
+        _statsLoading = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _statsLoading = false);
+    }
+  }
 
   void _comingSoon(String what) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -55,7 +80,7 @@ class _HomeTabState extends State<HomeTab> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: VtColors.surface,
+      backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -63,6 +88,7 @@ class _HomeTabState extends State<HomeTab> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Meeting scheduled!'), backgroundColor: VtColors.success),
         );
+        _loadStats();
       }),
     );
   }
@@ -83,48 +109,67 @@ class _HomeTabState extends State<HomeTab> {
         body: SafeArea(
           child: _starting
               ? const Center(child: CircularProgressIndicator(color: VtColors.primary))
-              : Padding(
+              : SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
-                  child: Column(children: [
-                    Row(children: [
-                      Expanded(
-                        child: _HomeTile(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    GridView.count(
+                      crossAxisCount: 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      mainAxisSpacing: 12,
+                      crossAxisSpacing: 12,
+                      childAspectRatio: 1,
+                      children: [
+                        _HomeTile(
                           icon: Icons.videocam_rounded,
                           label: 'Start Meeting',
                           color: const Color(0xFFFF9F43),
                           onTap: _startInstantMeeting,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _HomeTile(
+                        _HomeTile(
                           icon: Icons.add_rounded,
                           label: 'Join',
                           color: VtColors.primary,
                           onTap: _openJoinDialog,
                         ),
-                      ),
-                    ]),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      Expanded(
-                        child: _HomeTile(
+                        _HomeTile(
                           icon: Icons.event_rounded,
                           label: 'Schedule',
                           color: VtColors.primary,
                           onTap: _openScheduleSheet,
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _HomeTile(
+                        _HomeTile(
                           icon: Icons.screen_share_rounded,
                           label: 'Share screen',
                           color: VtColors.primary,
                           onTap: () => _comingSoon('Share screen'),
                         ),
-                      ),
-                    ]),
+                      ],
+                    ),
+                    const SizedBox(height: 28),
+                    const Text('Your meetings',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: VtColors.authInk)),
+                    const SizedBox(height: 12),
+                    _statsLoading
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 20),
+                            child: Center(
+                                child: CircularProgressIndicator(color: VtColors.primary, strokeWidth: 2)))
+                        : Row(children: [
+                            Expanded(
+                                child: _StatCard(
+                                    label: 'Live now', value: '$_liveCount', color: VtColors.success)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                                child: _StatCard(
+                                    label: 'Upcoming', value: '$_upcomingCount', color: VtColors.primary)),
+                            const SizedBox(width: 12),
+                            Expanded(
+                                child: _StatCard(
+                                    label: 'Completed',
+                                    value: '$_completedCount',
+                                    color: VtColors.authInkMuted)),
+                          ]),
                   ]),
                 ),
         ),
@@ -154,12 +199,11 @@ class _HomeTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(16),
-        child: Container(
-          height: 84,
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Icon(icon, color: Colors.white, size: 24),
-            const SizedBox(height: 6),
+            Icon(icon, color: Colors.white, size: 26),
+            const SizedBox(height: 8),
             Text(label,
                 textAlign: TextAlign.center,
                 maxLines: 1,
@@ -169,6 +213,36 @@ class _HomeTile extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  const _StatCard({required this.label, required this.value, required this.color});
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+      decoration: BoxDecoration(
+        color: VtColors.authFill,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: VtColors.authBorder),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Text(value,
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: color)),
+        const SizedBox(height: 4),
+        Text(label,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11.5, color: VtColors.authInkMuted, fontWeight: FontWeight.w600)),
+      ]),
     );
   }
 }

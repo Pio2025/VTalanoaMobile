@@ -11,14 +11,13 @@ class ControlsBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final room = context.watch<RoomProvider>();
     return Container(
-      height: 76,
       color: VtColors.surface,
       child: SafeArea(
         top: false,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               _CtrlBtn(
                 icon: room.micEnabled ? Icons.mic_rounded : Icons.mic_off_rounded,

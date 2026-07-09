@@ -27,20 +27,23 @@ class _JoinByCodeDialogState extends State<JoinByCodeDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      backgroundColor: VtColors.surface,
-      title: const Text('Join a Meeting'),
-      content: TextField(
-        controller: _ctrl,
-        autofocus: true,
-        style: const TextStyle(color: VtColors.text),
-        decoration: const InputDecoration(hintText: 'Enter meeting ID or link'),
-        onSubmitted: (_) => _submit(),
+    return Theme(
+      data: AppTheme.light,
+      child: AlertDialog(
+        backgroundColor: Colors.white,
+        title: const Text('Join a Meeting', style: TextStyle(color: VtColors.authInk)),
+        content: TextField(
+          controller: _ctrl,
+          autofocus: true,
+          style: const TextStyle(color: VtColors.authInk),
+          decoration: const InputDecoration(hintText: 'Enter meeting ID or link'),
+          onSubmitted: (_) => _submit(),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(onPressed: _submit, child: const Text('Join')),
+        ],
       ),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-        ElevatedButton(onPressed: _submit, child: const Text('Join')),
-      ],
     );
   }
 }

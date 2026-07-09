@@ -108,7 +108,9 @@ class _ScheduleMeetingSheetState extends State<ScheduleMeetingSheet> {
   @override
   Widget build(BuildContext context) {
     final df = DateFormat('EEE, MMM d, y  h:mm a');
-    return Padding(
+    return Theme(
+      data: AppTheme.light,
+      child: Padding(
       padding: EdgeInsets.only(
         left: 24, right: 24, top: 24,
         bottom: MediaQuery.of(context).viewInsets.bottom + 24,
@@ -121,9 +123,9 @@ class _ScheduleMeetingSheetState extends State<ScheduleMeetingSheet> {
           children: [
             Row(children: [
               const Text('Schedule Meeting',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: VtColors.authInk)),
               const Spacer(),
-              IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+              IconButton(icon: const Icon(Icons.close, color: VtColors.authInkMuted), onPressed: () => Navigator.pop(context)),
             ]),
             const SizedBox(height: 20),
             VtTextField(
@@ -147,7 +149,7 @@ class _ScheduleMeetingSheetState extends State<ScheduleMeetingSheet> {
               value: _waiting, onChanged: (v) => setState(() => _waiting = v),
               title: const Text('Waiting room', style: TextStyle(fontSize: 14)),
               subtitle: const Text('Approve participants before they enter',
-                style: TextStyle(fontSize: 12, color: VtColors.text3)),
+                style: TextStyle(fontSize: 12, color: VtColors.authInkMuted)),
               activeColor: VtColors.primary,
               contentPadding: EdgeInsets.zero,
             ),
@@ -164,7 +166,7 @@ class _ScheduleMeetingSheetState extends State<ScheduleMeetingSheet> {
               }),
               title: const Text('Require password', style: TextStyle(fontSize: 14)),
               subtitle: const Text('Participants must enter this to join',
-                style: TextStyle(fontSize: 12, color: VtColors.text3)),
+                style: TextStyle(fontSize: 12, color: VtColors.authInkMuted)),
               activeColor: VtColors.primary,
               contentPadding: EdgeInsets.zero,
             ),
@@ -201,6 +203,7 @@ class _ScheduleMeetingSheetState extends State<ScheduleMeetingSheet> {
           ),
         ),
       ),
+      ),
     );
   }
 }
@@ -217,19 +220,19 @@ class _DateTile extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: VtColors.inputFill,
+        color: VtColors.authFill,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: VtColors.border),
+        border: Border.all(color: VtColors.authBorder),
       ),
       child: Row(children: [
-        const Icon(Icons.calendar_today_rounded, size: 18, color: VtColors.text2),
+        const Icon(Icons.calendar_today_rounded, size: 18, color: VtColors.authInkMuted),
         const SizedBox(width: 10),
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: VtColors.text3)),
-          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          Text(label, style: const TextStyle(fontSize: 11, color: VtColors.authInkMuted)),
+          Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: VtColors.authInk)),
         ]),
         const Spacer(),
-        const Icon(Icons.chevron_right_rounded, color: VtColors.text3),
+        const Icon(Icons.chevron_right_rounded, color: VtColors.authInkMuted),
       ]),
     ),
   );

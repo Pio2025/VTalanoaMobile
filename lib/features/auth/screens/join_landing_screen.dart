@@ -46,7 +46,7 @@ class _JoinLandingScreenState extends State<JoinLandingScreen> {
       });
     }
     return const Scaffold(
-      backgroundColor: VtColors.bg,
+      backgroundColor: Colors.white,
       body: Center(child: CircularProgressIndicator(color: VtColors.primary)),
     );
   }
