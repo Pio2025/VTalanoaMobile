@@ -45,6 +45,7 @@ class WebRtcService {
     this.onYouAreWaiting,
     this.onAdmitted,
     this.onRemoved,
+    this.onSessionReplaced,
     this.onChatMessage,
     this.onPeerMuteStatus,
     this.onPeerCamStatus,
@@ -67,6 +68,7 @@ class WebRtcService {
   final VoidCallback? onYouAreWaiting;
   final VoidCallback? onAdmitted;
   final VoidCallback? onRemoved;
+  final VoidCallback? onSessionReplaced;
   final ChatCallback? onChatMessage;
   final MuteStatusCallback? onPeerMuteStatus;
   final CamStatusCallback? onPeerCamStatus;
@@ -91,16 +93,41 @@ class WebRtcService {
   // ── Init ───────────────────────────────────────────────────
   Future<void> init() async {
     vtLog('rtc', 'init() meetingUuid=$meetingUuid userId=$userId isHost=$isHost waitingRoom=$waitingRoom startWithVideo=$startWithVideo');
-    _localStream = await navigator.mediaDevices.getUserMedia({
-      'audio': true,
-      'video': {'facingMode': 'user', 'width': 640, 'height': 480},
-    });
-    vtLog('rtc', 'getUserMedia OK: ${_localStream?.getTracks().map((t) => t.kind).toList()}');
+    await _acquireLocalMedia();
     if (!startWithVideo) {
       _localStream!.getVideoTracks().forEach((t) => t.enabled = false);
     }
+    // Join the signaling room even if local media couldn't be acquired —
+    // a camera/mic failure on this device must not stop this user from
+    // joining the room (and, if host, must not stop the room from existing
+    // at all, since the waiting room and SFU flow depend on the host's
+    // socket being connected).
     await _createPeerConnection();
     _connectSocket();
+  }
+
+  Future<void> _acquireLocalMedia() async {
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia({
+        'audio': true,
+        'video': {'facingMode': 'user', 'width': 640, 'height': 480},
+      });
+      vtLog('rtc', 'getUserMedia(audio+video) OK: ${_localStream?.getTracks().map((t) => t.kind).toList()}');
+      return;
+    } catch (e) {
+      vtLog('rtc', 'getUserMedia(audio+video) FAILED: $e — retrying audio-only');
+    }
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia({'audio': true, 'video': false});
+      _camEnabled = false;
+      vtLog('rtc', 'getUserMedia(audio-only) OK: ${_localStream?.getTracks().map((t) => t.kind).toList()}');
+      return;
+    } catch (e) {
+      vtLog('rtc', 'getUserMedia(audio-only) FAILED: $e — joining without local media');
+    }
+    _localStream = await createLocalMediaStream('local-empty');
+    _camEnabled = false;
+    _micEnabled = false;
   }
 
   // ── RTCPeerConnection ─────────────────────────────────────
@@ -157,6 +184,7 @@ class WebRtcService {
       ..on('admitted', (_) { vtLog('socket', 'admitted'); onAdmitted?.call(); _startSfu(); })
       ..on('you-are-waiting', (_) { vtLog('socket', 'you-are-waiting'); onYouAreWaiting?.call(); })
       ..on('removed-from-meeting', (_) { vtLog('socket', 'removed-from-meeting'); onRemoved?.call(); })
+      ..on('session-replaced', (_) { vtLog('socket', 'session-replaced'); onSessionReplaced?.call(); })
       ..on('waiting-room-update', _onWaitingRoomUpdate)
       ..on('peer-joined', _onPeerJoined)
       ..on('peer-left', _onPeerLeft)

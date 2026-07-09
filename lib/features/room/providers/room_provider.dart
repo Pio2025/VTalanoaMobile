@@ -68,6 +68,7 @@ class RoomProvider extends ChangeNotifier {
       onYouAreWaiting: _onYouAreWaiting,
       onAdmitted: _onAdmitted,
       onRemoved: _onRemoved,
+      onSessionReplaced: _onSessionReplaced,
       onChatMessage: _onChatMessage,
       onPeerMuteStatus: _onPeerMuteStatus,
       onPeerCamStatus: _onPeerCamStatus,
@@ -86,6 +87,7 @@ class RoomProvider extends ChangeNotifier {
   List<WaitingParticipant> _waitingList = [];
   bool _isWaitingForAdmission;
   bool _wasRemoved = false;
+  bool _wasSessionReplaced = false;
 
   List<RemotePeer> get peers    => List.unmodifiable(_peers);
   List<ChatMessage> get messages => List.unmodifiable(_messages);
@@ -95,6 +97,7 @@ class RoomProvider extends ChangeNotifier {
   List<WaitingParticipant> get waitingList => List.unmodifiable(_waitingList);
   bool get isWaitingForAdmission => _isWaitingForAdmission;
   bool get wasRemoved            => _wasRemoved;
+  bool get wasSessionReplaced    => _wasSessionReplaced;
 
   void admitParticipant(String socketId) => _svc.admitParticipant(socketId);
   void admitAll() => _svc.admitAll();
@@ -122,6 +125,13 @@ class RoomProvider extends ChangeNotifier {
     vtLog('room', 'wasRemoved -> true');
     _isWaitingForAdmission = false;
     _wasRemoved = true;
+    notifyListeners();
+  }
+
+  void _onSessionReplaced() {
+    vtLog('room', 'wasSessionReplaced -> true');
+    _isWaitingForAdmission = false;
+    _wasSessionReplaced = true;
     notifyListeners();
   }
 

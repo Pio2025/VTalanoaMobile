@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import '../../../core/theme/app_theme.dart';
 import '../../dashboard/screens/dashboard_screen.dart';
 import '../widgets/account_menu_sheet.dart';
 import 'chats_tab.dart';
@@ -37,9 +36,11 @@ class _MainShellState extends State<MainShell> {
         currentIndex: _index,
         onTap: _onTap,
         type: BottomNavigationBarType.fixed,
-        backgroundColor: Colors.white,
-        selectedItemColor: VtColors.primary,
-        unselectedItemColor: VtColors.authInkMuted,
+        backgroundColor: const Color(0xFF262262),
+        selectedItemColor: Colors.white,
+        unselectedItemColor: Colors.white70,
+        selectedLabelStyle: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+        unselectedLabelStyle: const TextStyle(color: Colors.white70),
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home_rounded), label: 'Home'),
           BottomNavigationBarItem(icon: Icon(Icons.access_time_rounded), label: 'Meetings'),

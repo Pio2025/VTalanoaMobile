@@ -290,6 +290,15 @@ class _RoomScreenState extends State<RoomScreen> {
               return _RemovedView(onLeave: () => context.go('/meetings'));
             }
 
+            if (room.wasSessionReplaced) {
+              return _RemovedView(
+                onLeave: () => context.go('/meetings'),
+                icon: Icons.sync_problem_rounded,
+                iconColor: VtColors.text2,
+                message: "You reconnected from another tab or device",
+              );
+            }
+
             if (room.isWaitingForAdmission) {
               return _WaitingForHostView(onLeave: _leave);
             }
@@ -508,8 +517,16 @@ class _WaitingForHostView extends StatelessWidget {
 }
 
 class _RemovedView extends StatelessWidget {
-  const _RemovedView({required this.onLeave});
+  const _RemovedView({
+    required this.onLeave,
+    this.icon = Icons.block_rounded,
+    this.iconColor = VtColors.danger,
+    this.message = "You've been removed from the meeting",
+  });
   final VoidCallback onLeave;
+  final IconData icon;
+  final Color iconColor;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
@@ -517,11 +534,11 @@ class _RemovedView extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.block_rounded, size: 56, color: VtColors.danger),
+          Icon(icon, size: 56, color: iconColor),
           const SizedBox(height: 24),
-          const Text("You've been removed from the meeting",
+          Text(message,
               textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: VtColors.text)),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: VtColors.text)),
           const SizedBox(height: 24),
           ElevatedButton(onPressed: onLeave, child: const Text('Back to Meetings')),
         ]),
