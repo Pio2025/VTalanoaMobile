@@ -11,10 +11,12 @@ import '../../../shared/widgets/vt_button.dart';
 import '../../../shared/widgets/vt_text_field.dart';
 import '../providers/room_provider.dart';
 import '../widgets/controls_bar.dart';
-import '../widgets/chat_panel.dart';
 import '../widgets/video_tile.dart';
-import '../widgets/participants_sheet.dart';
+import 'chat_screen.dart';
+import 'participants_screen.dart';
+import 'settings_screen.dart';
 import 'waiting_room_screen.dart';
+import 'whiteboard_screen.dart';
 
 class RoomScreen extends StatefulWidget {
   const RoomScreen({
@@ -130,7 +132,7 @@ class _RoomScreenState extends State<RoomScreen> {
       );
     }
     provider.onOpenWaitingRoom = () {
-      if (mounted) openWaitingRoomScreen(context);
+      if (mounted) openWaitingRoomScreen(context, provider);
     };
     setState(() => _room = provider);
     await provider.init();
@@ -163,7 +165,7 @@ class _RoomScreenState extends State<RoomScreen> {
       );
       if (!mounted) return;
       provider.onOpenWaitingRoom = () {
-        if (mounted) openWaitingRoomScreen(context);
+        if (mounted) openWaitingRoomScreen(context, provider);
       };
       setState(() {
         _needsGuestInfo = false;
@@ -288,40 +290,34 @@ class _RoomScreenState extends State<RoomScreen> {
               return _WaitingForHostView(onLeave: _leave);
             }
 
-            return Column(children: [
-              // Top bar
-              _TopBar(meetingId: _displayId),
-              // Main area
-              Expanded(
-                child: Stack(children: [
-                  Row(children: [
-                    // Video grid
-                    Expanded(child: _VideoGrid(room: room)),
-                    // Chat panel (slide in)
-                    if (room.chatOpen)
-                      SizedBox(
-                        width: MediaQuery.of(context).size.width < 600 ? double.infinity : 300,
-                        child: ChatPanel(
-                          selfName: context.read<AuthProvider>().user?.name ?? 'You',
-                          selfId:   context.read<AuthProvider>().user?.userId ?? 0,
+            return PopScope(
+              canPop: false,
+              onPopInvokedWithResult: (didPop, result) {
+                if (!didPop) _leave();
+              },
+              child: Column(children: [
+                // Top bar
+                _TopBar(meetingId: _displayId),
+                // Main area
+                Expanded(
+                  child: Stack(children: [
+                    _VideoGrid(room: room),
+                    if (room.flashMessage != null)
+                      Positioned(
+                        top: 12, left: 12, right: 12,
+                        child: _FlashBanner(
+                          message: room.flashMessage!,
+                          actionLabel: room.flashActionLabel,
+                          onAction: room.flashAction,
+                          onDismiss: room.dismissFlash,
                         ),
                       ),
                   ]),
-                  if (room.flashMessage != null)
-                    Positioned(
-                      top: 12, left: 12, right: 12,
-                      child: _FlashBanner(
-                        message: room.flashMessage!,
-                        actionLabel: room.flashActionLabel,
-                        onAction: room.flashAction,
-                        onDismiss: room.dismissFlash,
-                      ),
-                    ),
-                ]),
-              ),
-              // Controls
-              ControlsBar(onLeave: _leave),
-            ]);
+                ),
+                // Controls
+                ControlsBar(onLeave: _leave),
+              ]),
+            );
           },
         ),
       ),
@@ -439,23 +435,73 @@ class _TopBar extends StatelessWidget {
             style: const TextStyle(fontSize: 13, color: VtColors.text2),
             overflow: TextOverflow.ellipsis),
         ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 4),
         Consumer<RoomProvider>(
-          builder: (_, room, __) => GestureDetector(
-            onTap: () => showParticipantsSheet(context),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 6),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.people_outline_rounded, size: 20, color: VtColors.text2),
-                const SizedBox(width: 6),
-                Text(
-                  '${room.peers.length + 1} participant${room.peers.isNotEmpty ? 's' : ''}',
-                  style: const TextStyle(fontSize: 12, color: VtColors.text3)),
-              ]),
+          builder: (_, room, __) => Row(mainAxisSize: MainAxisSize.min, children: [
+            if (room.isRecording) ...[
+              const Icon(Icons.fiber_manual_record_rounded, size: 10, color: VtColors.danger),
+              const SizedBox(width: 3),
+              const Text('REC', style: TextStyle(fontSize: 10, color: VtColors.danger,
+                  fontWeight: FontWeight.w700)),
+              const SizedBox(width: 6),
+            ],
+            _TopBarIconButton(
+              icon: Icons.chat_bubble_outline_rounded,
+              badge: room.messages.isNotEmpty ? room.messages.length : null,
+              onTap: () => openChatScreen(context, room),
             ),
-          ),
+            if (room.isHost)
+              _TopBarIconButton(
+                icon: Icons.meeting_room_rounded,
+                badge: room.waitingList.isNotEmpty ? room.waitingList.length : null,
+                onTap: () => openWaitingRoomScreen(context, room),
+              ),
+            _TopBarIconButton(
+              icon: Icons.draw_outlined,
+              onTap: () => openWhiteboardScreen(context, room),
+            ),
+            _TopBarIconButton(
+              icon: Icons.people_outline_rounded,
+              badge: room.peers.length + 1,
+              onTap: () => openParticipantsScreen(context, room),
+            ),
+            _TopBarIconButton(
+              icon: Icons.settings_outlined,
+              onTap: () => openSettingsScreen(context, room, meetingId),
+            ),
+          ]),
         ),
       ]),
+    );
+  }
+}
+
+class _TopBarIconButton extends StatelessWidget {
+  const _TopBarIconButton({required this.icon, required this.onTap, this.badge});
+  final IconData icon;
+  final VoidCallback onTap;
+  final int? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: Stack(clipBehavior: Clip.none, children: [
+          Icon(icon, size: 20, color: VtColors.text2),
+          if (badge != null && badge! > 0)
+            Positioned(
+              right: -4, top: -4,
+              child: Container(
+                padding: const EdgeInsets.all(3),
+                decoration: const BoxDecoration(color: VtColors.primary, shape: BoxShape.circle),
+                child: Text('$badge',
+                    style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w700)),
+              ),
+            ),
+        ]),
+      ),
     );
   }
 }
@@ -594,6 +640,7 @@ class _VideoGrid extends StatelessWidget {
                     isSelf: true,
                     camEnabled: room.camEnabled,
                     isHost: room.isHost,
+                    handRaised: room.handRaised,
                   )
                 : const _LoadingTile();
           }
@@ -604,6 +651,7 @@ class _VideoGrid extends StatelessWidget {
             speaking: peer.speaking,
             camEnabled: !peer.isCamOff,
             isMuted: peer.isMuted,
+            handRaised: peer.handRaised,
           );
         },
       ),

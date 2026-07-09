@@ -1,21 +1,40 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import '../providers/room_provider.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../providers/room_provider.dart';
 
-class ChatPanel extends StatefulWidget {
-  const ChatPanel({super.key, required this.selfName, required this.selfId});
+/// Full-screen chat, pushed on top of the room screen. The in-app back
+/// button and the Android hardware back button both just pop this route
+/// (Flutter's default Navigator behaviour), which returns to the still-live
+/// room screen underneath — i.e. "minimise" (same pattern as
+/// [openParticipantsScreen]/[openWaitingRoomScreen]/[openSettingsScreen]).
+void openChatScreen(BuildContext context, RoomProvider room) {
+  final auth = context.read<AuthProvider>();
+  Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => ChangeNotifierProvider.value(
+      value: room,
+      child: ChatScreen(
+        selfName: auth.user?.name ?? 'You',
+        selfId: auth.user?.userId ?? 0,
+      ),
+    ),
+  ));
+}
+
+class ChatScreen extends StatefulWidget {
+  const ChatScreen({super.key, required this.selfName, required this.selfId});
   final String selfName;
   final int selfId;
 
   @override
-  State<ChatPanel> createState() => _ChatPanelState();
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatPanelState extends State<ChatPanel> {
-  final _ctrl    = TextEditingController();
-  final _scroll  = ScrollController();
+class _ChatScreenState extends State<ChatScreen> {
+  final _ctrl   = TextEditingController();
+  final _scroll = ScrollController();
 
   @override
   void dispose() { _ctrl.dispose(); _scroll.dispose(); super.dispose(); }
@@ -42,25 +61,18 @@ class _ChatPanelState extends State<ChatPanel> {
     final messages = context.watch<RoomProvider>().messages;
     final tf = DateFormat('h:mm a');
 
-    return Container(
-      color: VtColors.surface,
-      child: Column(children: [
-        // Header
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: VtColors.border))),
-          child: Row(children: [
-            const Text('Chat', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
-            const Spacer(),
-            IconButton(
-              icon: const Icon(Icons.close_rounded, size: 20),
-              onPressed: () => context.read<RoomProvider>().toggleChat(),
-              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-            ),
-          ]),
+    return Scaffold(
+      backgroundColor: VtColors.bg,
+      appBar: AppBar(
+        backgroundColor: VtColors.surface,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded, color: VtColors.text),
+          onPressed: () => Navigator.of(context).pop(),
         ),
-        // Messages
+        title: const Text('Chat', style: TextStyle(color: VtColors.text, fontSize: 17)),
+      ),
+      body: Column(children: [
         Expanded(
           child: messages.isEmpty
               ? const Center(child: Text('No messages yet',
@@ -76,19 +88,19 @@ class _ChatPanelState extends State<ChatPanel> {
                   },
                 ),
         ),
-        // Input
         Container(
           padding: EdgeInsets.only(
             left: 12, right: 8, top: 8,
             bottom: MediaQuery.of(context).viewInsets.bottom + 8,
           ),
           decoration: const BoxDecoration(
+            color: VtColors.surface,
             border: Border(top: BorderSide(color: VtColors.border))),
           child: Row(children: [
             Expanded(
               child: TextField(
                 controller: _ctrl,
-                style: const TextStyle(fontSize: 14),
+                style: const TextStyle(fontSize: 14, color: VtColors.text),
                 minLines: 1, maxLines: 4,
                 onSubmitted: (_) => _send(),
                 decoration: InputDecoration(
@@ -150,7 +162,7 @@ class _Bubble extends StatelessWidget {
             children: [
               Container(
                 constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.65),
+                    maxWidth: MediaQuery.of(context).size.width * 0.75),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: isSelf ? VtColors.primary : VtColors.surface2,

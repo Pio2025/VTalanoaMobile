@@ -14,6 +14,10 @@ typedef ChatCallback  = void Function(String socketId, String senderName, String
 typedef MuteStatusCallback = void Function(String socketId, bool isMuted);
 typedef CamStatusCallback  = void Function(String socketId, bool isCamOff);
 typedef CoHostCallback     = void Function(String socketId, bool isCoHost);
+typedef RecordingCallback  = void Function(bool isRecording);
+typedef HandRaiseCallback  = void Function(String socketId, bool raised);
+typedef WbStrokeCallback   = void Function(Map<String, dynamic> stroke);
+typedef WbStateCallback    = void Function(List<Map<String, dynamic>> strokes);
 
 class WaitingParticipant {
   const WaitingParticipant({required this.socketId, required this.displayName, this.photoUrl});
@@ -55,6 +59,11 @@ class WebRtcService {
     this.onForceMuted,
     this.onForceCamOff,
     this.onUnmuteRequest,
+    this.onRecordingStatus,
+    this.onPeerRaiseHand,
+    this.onWbStroke,
+    this.onWbClear,
+    this.onWbState,
     this.startWithVideo = true,
   });
 
@@ -83,6 +92,11 @@ class WebRtcService {
   final VoidCallback? onForceMuted;
   final VoidCallback? onForceCamOff;
   final VoidCallback? onUnmuteRequest;
+  final RecordingCallback? onRecordingStatus;
+  final HandRaiseCallback? onPeerRaiseHand;
+  final WbStrokeCallback? onWbStroke;
+  final VoidCallback? onWbClear;
+  final WbStateCallback? onWbState;
 
   sio.Socket? _socket;
   RTCPeerConnection? _pc;
@@ -232,7 +246,32 @@ class WebRtcService {
       ..on('you-are-cohost', (_) { vtLog('socket', 'you-are-cohost'); onCoHostSelf?.call(true); })
       ..on('cohost-revoked-self', (_) { vtLog('socket', 'cohost-revoked-self'); onCoHostSelf?.call(false); })
       ..on('cohost-assigned', (d) => _onCoHostChanged(d, true))
-      ..on('cohost-revoked', (d) => _onCoHostChanged(d, false));
+      ..on('cohost-revoked', (d) => _onCoHostChanged(d, false))
+      ..on('recording-started', (_) { vtLog('socket', 'recording-started'); onRecordingStatus?.call(true); })
+      ..on('recording-stopped', (_) { vtLog('socket', 'recording-stopped'); onRecordingStatus?.call(false); })
+      ..on('peer-raise-hand', (d) => _onPeerHand(d, true))
+      ..on('peer-lower-hand', (d) => _onPeerHand(d, false))
+      ..on('wb-stroke', (d) {
+        final s = d is Map ? Map<String, dynamic>.from(d) : <String, dynamic>{};
+        onWbStroke?.call(s);
+      })
+      ..on('wb-clear', (_) { vtLog('socket', 'wb-clear'); onWbClear?.call(); })
+      ..on('wb-state', (d) {
+        final data = d is Map ? d : {};
+        final strokes = (data['strokes'] as List? ?? [])
+            .map((s) => Map<String, dynamic>.from(s as Map))
+            .toList();
+        vtLog('socket', 'wb-state: ${strokes.length} stroke(s)');
+        onWbState?.call(strokes);
+      });
+  }
+
+  void _onPeerHand(dynamic data, bool raised) {
+    final d = data is Map ? data : {};
+    final sid = d['socketId'] as String?;
+    if (sid == null) return;
+    vtLog('socket', 'peer-${raised ? 'raise' : 'lower'}-hand socketId=$sid');
+    onPeerRaiseHand?.call(sid, raised);
   }
 
   void _onCoHostChanged(dynamic data, bool isCoHost) {
@@ -303,6 +342,40 @@ class WebRtcService {
   void revokeCohost(String socketId) {
     vtLog('socket', 'emit revoke-cohost socketId=$socketId');
     _socket?.emit('revoke-cohost', {'socketId': socketId});
+  }
+
+  void startRecording() {
+    vtLog('socket', 'emit recording-started');
+    _socket?.emit('recording-started', {});
+  }
+
+  void stopRecording() {
+    vtLog('socket', 'emit recording-stopped');
+    _socket?.emit('recording-stopped', {});
+  }
+
+  void raiseHand() {
+    vtLog('socket', 'emit raise-hand');
+    _socket?.emit('raise-hand', {});
+  }
+
+  void lowerHand() {
+    vtLog('socket', 'emit lower-hand');
+    _socket?.emit('lower-hand', {});
+  }
+
+  void sendWbStroke(Map<String, dynamic> stroke) {
+    _socket?.emit('wb-stroke', stroke);
+  }
+
+  void clearWhiteboard() {
+    vtLog('socket', 'emit wb-clear');
+    _socket?.emit('wb-clear', {});
+  }
+
+  void requestWbState() {
+    vtLog('socket', 'emit wb-request-state');
+    _socket?.emit('wb-request-state', {});
   }
 
   void _onPeerJoined(dynamic data) {

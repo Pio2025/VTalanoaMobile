@@ -4,25 +4,23 @@ import '../../../core/providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../providers/room_provider.dart';
 
-void showParticipantsSheet(BuildContext context) {
-  final room = context.read<RoomProvider>();
+/// Full-screen participants list, pushed on top of the room screen. The
+/// in-app back button and the Android hardware back button both just pop
+/// this route (Flutter's default Navigator behaviour), which returns to the
+/// still-live room screen underneath — i.e. "minimise" (same pattern as
+/// [openWaitingRoomScreen] in waiting_room_screen.dart).
+void openParticipantsScreen(BuildContext context, RoomProvider room) {
   final selfName = context.read<AuthProvider>().user?.name ?? 'You';
-  showModalBottomSheet(
-    context: context,
-    backgroundColor: VtColors.surface,
-    isScrollControlled: true,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    ),
+  Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => ChangeNotifierProvider.value(
       value: room,
-      child: ParticipantsSheet(selfName: selfName),
+      child: ParticipantsScreen(selfName: selfName),
     ),
-  );
+  ));
 }
 
-class ParticipantsSheet extends StatelessWidget {
-  const ParticipantsSheet({super.key, required this.selfName});
+class ParticipantsScreen extends StatelessWidget {
+  const ParticipantsScreen({super.key, required this.selfName});
   final String selfName;
 
   @override
@@ -30,54 +28,50 @@ class ParticipantsSheet extends StatelessWidget {
     return Consumer<RoomProvider>(
       builder: (context, room, _) {
         final peers = room.peers;
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              Row(children: [
-                const Icon(Icons.people_outline_rounded, color: VtColors.text2),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Participants (${peers.length + 1})',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: VtColors.text)),
-                ),
-              ]),
-              const SizedBox(height: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 420),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: peers.length + 1,
-                  separatorBuilder: (_, __) => const Divider(height: 1, color: VtColors.border),
-                  itemBuilder: (_, i) {
-                    if (i == 0) {
-                      return _ParticipantRow(
-                        name: '$selfName (You)',
-                        isMuted: !room.micEnabled,
-                        isCamOff: !room.camEnabled,
-                        isCoHost: room.isHost || room.isCoHost,
-                        showControls: false,
-                      );
-                    }
-                    final peer = peers[i - 1];
-                    return _ParticipantRow(
-                      name: peer.displayName,
-                      isMuted: peer.isMuted,
-                      isCamOff: peer.isCamOff,
-                      isCoHost: peer.isCoHost,
-                      showControls: room.isHost,
-                      onToggleMute: () => peer.isMuted
-                          ? room.requestUnmute(peer.socketId)
-                          : room.muteParticipant(peer.socketId),
-                      onCamOff: peer.isCamOff ? null : () => room.requestCamOff(peer.socketId),
-                      onToggleCoHost: () => peer.isCoHost
-                          ? room.revokeCohost(peer.socketId)
-                          : room.assignCohost(peer.socketId),
-                    );
-                  },
-                ),
-              ),
-            ]),
+        return Scaffold(
+          backgroundColor: VtColors.bg,
+          appBar: AppBar(
+            backgroundColor: VtColors.surface,
+            elevation: 0,
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back_rounded, color: VtColors.text),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+            title: Text('Participants (${peers.length + 1})',
+                style: const TextStyle(color: VtColors.text, fontSize: 17)),
+          ),
+          body: ListView.separated(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            itemCount: peers.length + 1,
+            separatorBuilder: (_, __) => const Divider(height: 1, color: VtColors.border),
+            itemBuilder: (_, i) {
+              if (i == 0) {
+                return _ParticipantRow(
+                  name: '$selfName (You)',
+                  isMuted: !room.micEnabled,
+                  isCamOff: !room.camEnabled,
+                  isCoHost: room.isHost || room.isCoHost,
+                  handRaised: room.handRaised,
+                  showControls: false,
+                );
+              }
+              final peer = peers[i - 1];
+              return _ParticipantRow(
+                name: peer.displayName,
+                isMuted: peer.isMuted,
+                isCamOff: peer.isCamOff,
+                isCoHost: peer.isCoHost,
+                handRaised: peer.handRaised,
+                showControls: room.isHost,
+                onToggleMute: () => peer.isMuted
+                    ? room.requestUnmute(peer.socketId)
+                    : room.muteParticipant(peer.socketId),
+                onCamOff: peer.isCamOff ? null : () => room.requestCamOff(peer.socketId),
+                onToggleCoHost: () => peer.isCoHost
+                    ? room.revokeCohost(peer.socketId)
+                    : room.assignCohost(peer.socketId),
+              );
+            },
           ),
         );
       },
@@ -92,6 +86,7 @@ class _ParticipantRow extends StatelessWidget {
     required this.isCamOff,
     required this.isCoHost,
     required this.showControls,
+    this.handRaised = false,
     this.onToggleMute,
     this.onCamOff,
     this.onToggleCoHost,
@@ -101,6 +96,7 @@ class _ParticipantRow extends StatelessWidget {
   final bool isMuted;
   final bool isCamOff;
   final bool isCoHost;
+  final bool handRaised;
   final bool showControls;
   final VoidCallback? onToggleMute;
   final VoidCallback? onCamOff;
@@ -120,6 +116,10 @@ class _ParticipantRow extends StatelessWidget {
         if (isCoHost) ...[
           const SizedBox(width: 6),
           const _Tag(label: 'Co-host'),
+        ],
+        if (handRaised) ...[
+          const SizedBox(width: 6),
+          const Icon(Icons.back_hand_rounded, size: 14, color: VtColors.warning),
         ],
       ]),
       subtitle: Row(children: [

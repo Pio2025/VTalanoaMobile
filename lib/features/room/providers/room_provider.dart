@@ -11,6 +11,7 @@ class RemotePeer {
   bool isMuted;
   bool isCamOff;
   bool isCoHost;
+  bool handRaised;
 
   RemotePeer({
     required this.socketId,
@@ -20,6 +21,7 @@ class RemotePeer {
     this.isMuted = false,
     this.isCamOff = false,
     this.isCoHost = false,
+    this.handRaised = false,
   });
 }
 
@@ -79,6 +81,11 @@ class RoomProvider extends ChangeNotifier {
       onForceMuted: _onForceMuted,
       onForceCamOff: _onForceCamOff,
       onUnmuteRequest: _onUnmuteRequestReceived,
+      onRecordingStatus: _onRecordingStatus,
+      onPeerRaiseHand: _onPeerRaiseHand,
+      onWbStroke: _onWbStroke,
+      onWbClear: _onWbClear,
+      onWbState: _onWbState,
     );
   }
 
@@ -88,7 +95,7 @@ class RoomProvider extends ChangeNotifier {
 
   final List<RemotePeer> _peers        = [];
   final List<ChatMessage> _messages    = [];
-  bool _chatOpen  = false;
+  final List<Map<String, dynamic>> _wbStrokes = [];
   bool _isLoading = true;
   String? _error;
   List<WaitingParticipant> _waitingList = [];
@@ -96,6 +103,8 @@ class RoomProvider extends ChangeNotifier {
   bool _wasRemoved = false;
   bool _wasSessionReplaced = false;
   bool _isCoHost = false;
+  bool _isRecording = false;
+  bool _handRaised = false;
   bool _disposed = false;
 
   /// Assigned by the UI (RoomScreen) so the provider can trigger navigation
@@ -110,7 +119,6 @@ class RoomProvider extends ChangeNotifier {
 
   List<RemotePeer> get peers    => List.unmodifiable(_peers);
   List<ChatMessage> get messages => List.unmodifiable(_messages);
-  bool get chatOpen             => _chatOpen;
   bool get isLoading            => _isLoading;
   String? get error             => _error;
   List<WaitingParticipant> get waitingList => List.unmodifiable(_waitingList);
@@ -118,6 +126,9 @@ class RoomProvider extends ChangeNotifier {
   bool get wasRemoved            => _wasRemoved;
   bool get wasSessionReplaced    => _wasSessionReplaced;
   bool get isCoHost              => _isCoHost;
+  bool get isRecording           => _isRecording;
+  bool get handRaised            => _handRaised;
+  List<Map<String, dynamic>> get wbStrokes => List.unmodifiable(_wbStrokes);
   String? get flashMessage       => _flashMessage;
   String? get flashActionLabel   => _flashActionLabel;
   VoidCallback? get flashAction  => _flashAction;
@@ -296,7 +307,72 @@ class RoomProvider extends ChangeNotifier {
   void toggleCam()    { _svc.toggleCam();  notifyListeners(); }
   void toggleMic()    { _svc.toggleMic();  notifyListeners(); }
   void switchCamera() { _svc.switchCamera(); }
-  void toggleChat()   { _chatOpen = !_chatOpen; notifyListeners(); }
+
+  void toggleRecording() {
+    if (_isRecording) {
+      _svc.stopRecording();
+    } else {
+      _svc.startRecording();
+    }
+    _isRecording = !_isRecording;
+    notifyListeners();
+  }
+
+  void _onRecordingStatus(bool recording) {
+    if (_isRecording == recording) return;
+    _isRecording = recording;
+    _showFlash(recording ? 'Recording started' : 'Recording stopped');
+    notifyListeners();
+  }
+
+  void toggleHandRaise() {
+    _handRaised = !_handRaised;
+    if (_handRaised) {
+      _svc.raiseHand();
+    } else {
+      _svc.lowerHand();
+    }
+    notifyListeners();
+  }
+
+  void _onPeerRaiseHand(String socketId, bool raised) {
+    final idx = _peers.indexWhere((p) => p.socketId == socketId);
+    if (idx >= 0) {
+      _peers[idx].handRaised = raised;
+      notifyListeners();
+    }
+  }
+
+  void requestWbState() => _svc.requestWbState();
+
+  void sendWbStroke(Map<String, dynamic> stroke) {
+    _wbStrokes.add(stroke);
+    _svc.sendWbStroke(stroke);
+    notifyListeners();
+  }
+
+  void clearWhiteboard() {
+    _wbStrokes.clear();
+    _svc.clearWhiteboard();
+    notifyListeners();
+  }
+
+  void _onWbStroke(Map<String, dynamic> stroke) {
+    _wbStrokes.add(stroke);
+    notifyListeners();
+  }
+
+  void _onWbClear() {
+    _wbStrokes.clear();
+    notifyListeners();
+  }
+
+  void _onWbState(List<Map<String, dynamic>> strokes) {
+    _wbStrokes
+      ..clear()
+      ..addAll(strokes);
+    notifyListeners();
+  }
 
   void sendChatMessage(String text, {required String senderId, required String senderName}) {
     _svc.sendChatMessage(text);

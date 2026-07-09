@@ -12,6 +12,7 @@ class VideoTile extends StatefulWidget {
     this.camEnabled = true,
     this.isHost = false,
     this.isMuted = false,
+    this.handRaised = false,
   });
 
   final MediaStream stream;
@@ -21,6 +22,7 @@ class VideoTile extends StatefulWidget {
   final bool camEnabled;
   final bool isHost;
   final bool isMuted;
+  final bool handRaised;
 
   @override
   State<VideoTile> createState() => _VideoTileState();
@@ -119,6 +121,20 @@ class _VideoTileState extends State<VideoTile> {
               width: 10, height: 10,
               decoration: const BoxDecoration(
                 color: VtColors.success, shape: BoxShape.circle),
+            ),
+          ),
+
+        // Hand-raised indicator
+        if (widget.handRaised)
+          Positioned(
+            left: 8, top: 8,
+            child: Container(
+              padding: const EdgeInsets.all(5),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.6),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.back_hand_rounded, size: 14, color: VtColors.warning),
             ),
           ),
       ]),

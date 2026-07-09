@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/room_provider.dart';
 import '../../../core/theme/app_theme.dart';
-import '../screens/waiting_room_screen.dart';
 
 class ControlsBar extends StatelessWidget {
   const ControlsBar({super.key, required this.onLeave});
@@ -40,36 +39,28 @@ class ControlsBar extends StatelessWidget {
                 active: true,
                 onTap: () => room.switchCamera(),
               ),
-              const SizedBox(width: 6),
-              _CtrlBtn(
-                icon: Icons.chat_bubble_outline_rounded,
-                label: 'Chat',
-                active: room.chatOpen,
-                onTap: () => room.toggleChat(),
-                badge: room.messages.isNotEmpty ? room.messages.length : null,
-              ),
               if (room.isHost) ...[
                 const SizedBox(width: 6),
                 _CtrlBtn(
-                  icon: Icons.meeting_room_rounded,
-                  label: 'Waiting',
-                  active: true,
-                  onTap: () => openWaitingRoomScreen(context),
-                  badge: room.waitingList.isNotEmpty ? room.waitingList.length : null,
+                  icon: Icons.fiber_manual_record_rounded,
+                  label: 'Rec',
+                  active: !room.isRecording,
+                  onTap: () => room.toggleRecording(),
                 ),
               ],
-              const SizedBox(width: 14),
-              // End call
-              GestureDetector(
+              const SizedBox(width: 6),
+              _CtrlBtn(
+                icon: room.handRaised ? Icons.back_hand_rounded : Icons.back_hand_outlined,
+                label: 'Hand',
+                active: !room.handRaised,
+                onTap: () => room.toggleHandRaise(),
+              ),
+              const SizedBox(width: 6),
+              _CtrlBtn(
+                icon: Icons.call_end_rounded,
+                label: 'End',
+                active: false,
                 onTap: onLeave,
-                child: Container(
-                  width: 52, height: 52,
-                  decoration: BoxDecoration(
-                    color: VtColors.danger,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(Icons.call_end_rounded, color: Colors.white, size: 24),
-                ),
               ),
             ]),
           ),
@@ -85,14 +76,12 @@ class _CtrlBtn extends StatelessWidget {
     required this.label,
     required this.active,
     required this.onTap,
-    this.badge,
   });
 
   final IconData icon;
   final String label;
   final bool active;
   final VoidCallback onTap;
-  final int? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -101,32 +90,18 @@ class _CtrlBtn extends StatelessWidget {
       child: SizedBox(
         width: 56,
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Stack(clipBehavior: Clip.none, children: [
-            Container(
-              width: 46, height: 46,
-              decoration: BoxDecoration(
-                color: active ? VtColors.surface2 : VtColors.danger.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: active ? VtColors.border : VtColors.danger.withOpacity(0.3),
-                ),
+          Container(
+            width: 46, height: 46,
+            decoration: BoxDecoration(
+              color: active ? VtColors.surface2 : VtColors.danger.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(
+                color: active ? VtColors.border : VtColors.danger.withValues(alpha: 0.3),
               ),
-              child: Icon(icon, size: 22,
-                  color: active ? VtColors.text : VtColors.danger),
             ),
-            if (badge != null && badge! > 0)
-              Positioned(
-                right: -4, top: -4,
-                child: Container(
-                  padding: const EdgeInsets.all(3),
-                  decoration: const BoxDecoration(
-                    color: VtColors.primary, shape: BoxShape.circle),
-                  child: Text('$badge',
-                    style: const TextStyle(fontSize: 9, color: Colors.white,
-                        fontWeight: FontWeight.w700)),
-                ),
-              ),
-          ]),
+            child: Icon(icon, size: 22,
+                color: active ? VtColors.text : VtColors.danger),
+          ),
           const SizedBox(height: 4),
           Text(label,
             style: const TextStyle(fontSize: 10, color: VtColors.text2),

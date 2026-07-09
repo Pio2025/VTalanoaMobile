@@ -2,19 +2,47 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../providers/room_provider.dart';
+import '../services/webrtc_service.dart' show WaitingParticipant;
 
 /// Full-screen waiting-room admin view, pushed on top of the room screen.
 /// The in-app back button and the Android hardware back button both just
 /// pop this route (Flutter's default Navigator behaviour), which returns
 /// to the still-live room screen underneath — i.e. "minimise".
-void openWaitingRoomScreen(BuildContext context) {
-  final room = context.read<RoomProvider>();
+void openWaitingRoomScreen(BuildContext context, RoomProvider room) {
   Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => ChangeNotifierProvider.value(
       value: room,
       child: const WaitingRoomScreen(),
     ),
   ));
+}
+
+void _confirmRemove(BuildContext context, RoomProvider room, WaitingParticipant p) {
+  showDialog(
+    context: context,
+    builder: (_) => AlertDialog(
+      backgroundColor: VtColors.surface,
+      icon: const Icon(Icons.warning_rounded, color: VtColors.danger, size: 32),
+      title: const Text('Remove from waiting room?'),
+      content: Text('${p.displayName} will not be admitted and must ask to join again.',
+          style: const TextStyle(color: VtColors.text2)),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.pop(context);
+            room.removeParticipant(p.socketId);
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: VtColors.danger, elevation: 0,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          ),
+          child: const Text('Remove'),
+        ),
+      ],
+    ),
+  );
 }
 
 class WaitingRoomScreen extends StatelessWidget {
@@ -34,7 +62,7 @@ class WaitingRoomScreen extends StatelessWidget {
               icon: const Icon(Icons.arrow_back_rounded, color: VtColors.text),
               onPressed: () => Navigator.of(context).pop(),
             ),
-            title: Text('Waiting room (${waiting.length})',
+            title: Text('Waiting Room (${waiting.length})',
                 style: const TextStyle(color: VtColors.text, fontSize: 17)),
             actions: [
               if (waiting.isNotEmpty)
@@ -69,7 +97,7 @@ class WaitingRoomScreen extends StatelessWidget {
                         IconButton(
                           tooltip: 'Remove',
                           icon: const Icon(Icons.close_rounded, color: VtColors.danger),
-                          onPressed: () => room.removeParticipant(p.socketId),
+                          onPressed: () => _confirmRemove(context, room, p),
                         ),
                         ElevatedButton(
                           onPressed: () => room.admitParticipant(p.socketId),
