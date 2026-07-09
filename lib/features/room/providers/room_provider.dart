@@ -30,15 +30,40 @@ class ChatMessage {
   final String senderName;
   final String text;
   final DateTime time;
-  final String? imageUrl;
+  final String? messageId;
+  final String? fileUrl;
+  final String? fileName;
+  final String? fileType;
+  final int? fileSize;
+  final String? pollId;
 
   const ChatMessage({
     required this.senderId,
     required this.senderName,
     required this.text,
     required this.time,
-    this.imageUrl,
+    this.messageId,
+    this.fileUrl,
+    this.fileName,
+    this.fileType,
+    this.fileSize,
+    this.pollId,
   });
+}
+
+class PollOption {
+  PollOption(this.text);
+  final String text;
+  int votes = 0;
+}
+
+class PollInfo {
+  PollInfo({required this.pollId, required this.question, required this.options, this.creatorName});
+  final String pollId;
+  final String question;
+  final String? creatorName;
+  final List<PollOption> options;
+  int votedIndex = -1;
 }
 
 class RoomProvider extends ChangeNotifier {
@@ -86,6 +111,9 @@ class RoomProvider extends ChangeNotifier {
       onWbStroke: _onWbStroke,
       onWbClear: _onWbClear,
       onWbState: _onWbState,
+      onReactionUpdate: _onReactionUpdate,
+      onPollCreated: _onPollCreated,
+      onPollVoteUpdate: _onPollVoteUpdate,
     );
   }
 
@@ -95,6 +123,9 @@ class RoomProvider extends ChangeNotifier {
 
   final List<RemotePeer> _peers        = [];
   final List<ChatMessage> _messages    = [];
+  final Map<String, PollInfo> _polls   = {};
+  final Map<String, Map<String, Set<String>>> _reactions = {};
+  int _msgCounter = 0;
   final List<Map<String, dynamic>> _wbStrokes = [];
   bool _isLoading = true;
   String? _error;
@@ -132,6 +163,10 @@ class RoomProvider extends ChangeNotifier {
   String? get flashMessage       => _flashMessage;
   String? get flashActionLabel   => _flashActionLabel;
   VoidCallback? get flashAction  => _flashAction;
+  String? get selfSocketId       => _svc.socketId;
+  PollInfo? pollFor(String pollId) => _polls[pollId];
+  Map<String, Set<String>> reactionsFor(String messageId) =>
+      Map.unmodifiable(_reactions[messageId] ?? const {});
 
   void admitParticipant(String socketId) => _svc.admitParticipant(socketId);
   void admitAll() => _svc.admitAll();
@@ -275,8 +310,82 @@ class RoomProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _onChatMessage(String socketId, String senderName, String message, DateTime time) {
-    _messages.add(ChatMessage(senderId: socketId, senderName: senderName, text: message, time: time));
+  void _onChatMessage(IncomingChatMessage msg) {
+    _messages.add(ChatMessage(
+      senderId: msg.socketId,
+      senderName: msg.senderName,
+      text: msg.message,
+      time: msg.time,
+      messageId: msg.messageId.isNotEmpty ? msg.messageId : null,
+      fileUrl: msg.fileUrl,
+      fileName: msg.fileName,
+      fileType: msg.fileType,
+      fileSize: msg.fileSize,
+    ));
+    notifyListeners();
+  }
+
+  void _applyReaction(String messageId, String emoji, String socketId) {
+    final msgReactions = _reactions.putIfAbsent(messageId, () => {});
+    final set = msgReactions.putIfAbsent(emoji, () => {});
+    if (!set.remove(socketId)) set.add(socketId);
+    if (set.isEmpty) msgReactions.remove(emoji);
+    if (msgReactions.isEmpty) _reactions.remove(messageId);
+    notifyListeners();
+  }
+
+  void reactToMessage(String messageId, String emoji) {
+    final sid = _svc.socketId;
+    if (sid == null) return;
+    _applyReaction(messageId, emoji, sid);
+    _svc.sendReaction(messageId, emoji);
+  }
+
+  void _onReactionUpdate(String socketId, String messageId, String emoji) {
+    _applyReaction(messageId, emoji, socketId);
+  }
+
+  void createPoll(String question, List<String> options, {required String creatorName}) {
+    final pollId = 'poll_${DateTime.now().millisecondsSinceEpoch}_${++_msgCounter}';
+    _polls[pollId] = PollInfo(
+      pollId: pollId, question: question,
+      options: options.map(PollOption.new).toList(),
+      creatorName: creatorName,
+    );
+    _svc.createPoll(pollId, question, options);
+    _messages.add(ChatMessage(
+      senderId: _svc.socketId ?? '', senderName: creatorName,
+      text: '', time: DateTime.now(), pollId: pollId,
+    ));
+    notifyListeners();
+  }
+
+  void _onPollCreated(String pollId, String question, List<String> options, String? creatorName) {
+    _polls[pollId] = PollInfo(
+      pollId: pollId, question: question,
+      options: options.map(PollOption.new).toList(),
+      creatorName: creatorName,
+    );
+    _messages.add(ChatMessage(
+      senderId: 'remote', senderName: creatorName ?? 'Participant',
+      text: '', time: DateTime.now(), pollId: pollId,
+    ));
+    notifyListeners();
+  }
+
+  void votePoll(String pollId, int optionIndex) {
+    final poll = _polls[pollId];
+    if (poll == null || poll.votedIndex >= 0) return;
+    poll.votedIndex = optionIndex;
+    poll.options[optionIndex].votes++;
+    _svc.votePoll(pollId, optionIndex);
+    notifyListeners();
+  }
+
+  void _onPollVoteUpdate(String pollId, int optionIndex) {
+    final poll = _polls[pollId];
+    if (poll == null || optionIndex < 0 || optionIndex >= poll.options.length) return;
+    poll.options[optionIndex].votes++;
     notifyListeners();
   }
 
@@ -375,9 +484,39 @@ class RoomProvider extends ChangeNotifier {
   }
 
   void sendChatMessage(String text, {required String senderId, required String senderName}) {
-    _svc.sendChatMessage(text);
-    _messages.add(ChatMessage(senderId: senderId, senderName: senderName, text: text, time: DateTime.now()));
+    final messageId = 'msg_${DateTime.now().millisecondsSinceEpoch}_${++_msgCounter}';
+    _svc.sendChatMessage(messageId: messageId, message: text);
+    _messages.add(ChatMessage(
+      senderId: senderId, senderName: senderName, text: text,
+      time: DateTime.now(), messageId: messageId,
+    ));
     notifyListeners();
+  }
+
+  /// Uploads [filePath] as a chat attachment and sends it as a chat message,
+  /// returning false if the upload failed (caller should surface an error).
+  Future<bool> sendFileMessage({
+    required String filePath,
+    required String fileName,
+    required String senderId,
+    required String senderName,
+  }) async {
+    final result = await _svc.uploadChatFile(filePath, fileName);
+    if (result == null) return false;
+    final messageId = 'msg_${DateTime.now().millisecondsSinceEpoch}_${++_msgCounter}';
+    final fileUrl  = result['url'] as String?;
+    final fName    = result['name'] as String? ?? fileName;
+    final fType    = result['type'] as String?;
+    final fSize    = result['size'] is int ? result['size'] as int : int.tryParse('${result['size']}');
+    _svc.sendChatMessage(
+      messageId: messageId, fileUrl: fileUrl, fileName: fName, fileType: fType, fileSize: fSize,
+    );
+    _messages.add(ChatMessage(
+      senderId: senderId, senderName: senderName, text: '', time: DateTime.now(),
+      messageId: messageId, fileUrl: fileUrl, fileName: fName, fileType: fType, fileSize: fSize,
+    ));
+    notifyListeners();
+    return true;
   }
 
   @override

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/avatar_initials.dart';
 
 class VideoTile extends StatefulWidget {
   const VideoTile({
@@ -148,9 +149,7 @@ class _AvatarPlaceholder extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initials = name.trim().split(' ').take(2)
-        .map((p) => p.isNotEmpty ? p[0].toUpperCase() : '')
-        .join();
+    final initials = avatarInitials(name);
     return Container(
       color: VtColors.surface2,
       child: Center(

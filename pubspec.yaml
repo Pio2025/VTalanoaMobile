@@ -34,6 +34,7 @@ dependencies:
 
   # Media picking for chat
   image_picker: ^1.1.2
+  file_picker: ^8.1.4
 
   # Image display
   cached_network_image: ^3.3.1

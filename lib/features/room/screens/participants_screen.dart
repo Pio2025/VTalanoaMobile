@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/avatar_initials.dart';
 import '../providers/room_provider.dart';
 
 /// Full-screen participants list, pushed on top of the room screen. The
@@ -108,7 +109,7 @@ class _ParticipantRow extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       leading: CircleAvatar(
         backgroundColor: VtColors.primary.withValues(alpha: 0.15),
-        child: Text(name.isNotEmpty ? name[0].toUpperCase() : '?',
+        child: Text(avatarInitials(name),
             style: const TextStyle(color: VtColors.primary, fontWeight: FontWeight.bold)),
       ),
       title: Row(children: [

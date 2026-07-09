@@ -10,7 +10,7 @@ typedef TrackCallback = void Function(String socketId, MediaStream stream, Strin
 typedef PeerCallback  = void Function(String socketId, String displayName);
 typedef SpeakCallback = void Function(String socketId, bool speaking);
 typedef WaitingListCallback = void Function(List<WaitingParticipant> waiting);
-typedef ChatCallback  = void Function(String socketId, String senderName, String message, DateTime time);
+typedef ChatCallback  = void Function(IncomingChatMessage msg);
 typedef MuteStatusCallback = void Function(String socketId, bool isMuted);
 typedef CamStatusCallback  = void Function(String socketId, bool isCamOff);
 typedef CoHostCallback     = void Function(String socketId, bool isCoHost);
@@ -18,6 +18,33 @@ typedef RecordingCallback  = void Function(bool isRecording);
 typedef HandRaiseCallback  = void Function(String socketId, bool raised);
 typedef WbStrokeCallback   = void Function(Map<String, dynamic> stroke);
 typedef WbStateCallback    = void Function(List<Map<String, dynamic>> strokes);
+typedef ReactionCallback   = void Function(String socketId, String messageId, String emoji);
+typedef PollCreatedCallback = void Function(String pollId, String question, List<String> options, String? creatorName);
+typedef PollVoteCallback   = void Function(String pollId, int optionIndex);
+
+class IncomingChatMessage {
+  const IncomingChatMessage({
+    required this.socketId,
+    required this.messageId,
+    required this.senderName,
+    required this.message,
+    required this.time,
+    this.fileUrl,
+    this.fileName,
+    this.fileType,
+    this.fileSize,
+  });
+
+  final String socketId;
+  final String messageId;
+  final String senderName;
+  final String message;
+  final DateTime time;
+  final String? fileUrl;
+  final String? fileName;
+  final String? fileType;
+  final int? fileSize;
+}
 
 class WaitingParticipant {
   const WaitingParticipant({required this.socketId, required this.displayName, this.photoUrl});
@@ -64,6 +91,9 @@ class WebRtcService {
     this.onWbStroke,
     this.onWbClear,
     this.onWbState,
+    this.onReactionUpdate,
+    this.onPollCreated,
+    this.onPollVoteUpdate,
     this.startWithVideo = true,
   });
 
@@ -97,6 +127,9 @@ class WebRtcService {
   final WbStrokeCallback? onWbStroke;
   final VoidCallback? onWbClear;
   final WbStateCallback? onWbState;
+  final ReactionCallback? onReactionUpdate;
+  final PollCreatedCallback? onPollCreated;
+  final PollVoteCallback? onPollVoteUpdate;
 
   sio.Socket? _socket;
   RTCPeerConnection? _pc;
@@ -114,6 +147,7 @@ class WebRtcService {
   MediaStream? get localStream  => _localStream;
   bool get camEnabled           => _camEnabled;
   bool get micEnabled           => _micEnabled;
+  String? get socketId          => _socket?.id;
 
   // ── Init ───────────────────────────────────────────────────
   Future<void> init() async {
@@ -225,6 +259,9 @@ class WebRtcService {
       ..on('sfu-offer', _onSfuOffer)
       ..on('speaking', _onSpeaking)
       ..on('chat-message', _onChatMessage)
+      ..on('chat-reaction-update', _onReactionUpdate)
+      ..on('poll-created', _onPollCreated)
+      ..on('poll-vote-update', _onPollVoteUpdate)
       ..on('peer-mute-status', _onPeerMuteStatus)
       ..on('peer-cam-status', _onPeerCamStatus)
       ..on('mute-request', (_) {
@@ -464,13 +501,51 @@ class WebRtcService {
 
   void _onChatMessage(dynamic data) {
     final d = data is Map ? data : {};
-    final sid     = d['socketId'] as String? ?? '';
-    final name    = d['senderName'] as String? ?? 'Participant';
-    final message = d['message'] as String? ?? '';
-    final ts      = d['timestamp'] as String?;
-    final time    = ts != null ? (DateTime.tryParse(ts) ?? DateTime.now()) : DateTime.now();
+    final sid       = d['socketId'] as String? ?? '';
+    final name      = d['senderName'] as String? ?? 'Participant';
+    final message   = d['message'] as String? ?? '';
+    final ts        = d['timestamp'] as String?;
+    final time      = ts != null ? (DateTime.tryParse(ts) ?? DateTime.now()) : DateTime.now();
+    final messageId = d['messageId'] as String? ?? '';
     vtLog('socket', 'chat-message from=$sid name=$name');
-    onChatMessage?.call(sid, name, message, time);
+    onChatMessage?.call(IncomingChatMessage(
+      socketId: sid,
+      messageId: messageId,
+      senderName: name,
+      message: message,
+      time: time,
+      fileUrl: d['fileUrl'] as String?,
+      fileName: d['fileName'] as String?,
+      fileType: d['fileType'] as String?,
+      fileSize: d['fileSize'] is int ? d['fileSize'] as int : int.tryParse('${d['fileSize']}'),
+    ));
+  }
+
+  void _onReactionUpdate(dynamic data) {
+    final d = data is Map ? data : {};
+    final sid       = d['socketId'] as String? ?? '';
+    final messageId = d['messageId'] as String? ?? '';
+    final emoji     = d['emoji'] as String? ?? '';
+    if (messageId.isEmpty || emoji.isEmpty) return;
+    onReactionUpdate?.call(sid, messageId, emoji);
+  }
+
+  void _onPollCreated(dynamic data) {
+    final d = data is Map ? data : {};
+    final pollId = d['pollId'] as String? ?? '';
+    if (pollId.isEmpty) return;
+    final question = d['question'] as String? ?? '';
+    final options = (d['options'] as List? ?? []).map((o) => o.toString()).toList();
+    vtLog('socket', 'poll-created pollId=$pollId');
+    onPollCreated?.call(pollId, question, options, d['creatorName'] as String?);
+  }
+
+  void _onPollVoteUpdate(dynamic data) {
+    final d = data is Map ? data : {};
+    final pollId = d['pollId'] as String? ?? '';
+    final optionIndex = d['optionIndex'] as int? ?? -1;
+    if (pollId.isEmpty || optionIndex < 0) return;
+    onPollVoteUpdate?.call(pollId, optionIndex);
   }
 
   void _onPeerMuteStatus(dynamic data) {
@@ -486,9 +561,62 @@ class WebRtcService {
   }
 
   /// Broadcasts a chat message to the room; the sender shows it locally via its own echo.
-  void sendChatMessage(String message) {
-    vtLog('socket', 'emit chat-message message="$message"');
-    _socket?.emit('chat-message', {'message': message});
+  void sendChatMessage({
+    required String messageId,
+    String message = '',
+    String? fileUrl,
+    String? fileName,
+    String? fileType,
+    int? fileSize,
+  }) {
+    vtLog('socket', 'emit chat-message messageId=$messageId message="$message" file=$fileUrl');
+    _socket?.emit('chat-message', {
+      'messageId': messageId,
+      'message': message,
+      if (fileUrl != null) 'fileUrl': fileUrl,
+      if (fileName != null) 'fileName': fileName,
+      if (fileType != null) 'fileType': fileType,
+      if (fileSize != null) 'fileSize': fileSize,
+    });
+  }
+
+  void sendReaction(String messageId, String emoji) {
+    vtLog('socket', 'emit chat-reaction messageId=$messageId emoji=$emoji');
+    _socket?.emit('chat-reaction', {'messageId': messageId, 'emoji': emoji});
+  }
+
+  void createPoll(String pollId, String question, List<String> options) {
+    vtLog('socket', 'emit poll-create pollId=$pollId');
+    _socket?.emit('poll-create', {'pollId': pollId, 'question': question, 'options': options});
+  }
+
+  void votePoll(String pollId, int optionIndex) {
+    vtLog('socket', 'emit poll-vote pollId=$pollId optionIndex=$optionIndex');
+    _socket?.emit('poll-vote', {'pollId': pollId, 'optionIndex': optionIndex});
+  }
+
+  /// Uploads a chat attachment (image or file) via the JWT-protected REST
+  /// endpoint. Returns `{url, name, type, size}` on success, matching the
+  /// web app's upload response shape, or null on failure.
+  Future<Map<String, dynamic>?> uploadChatFile(String filePath, String fileName) async {
+    vtLog('http', 'uploading chat file $fileName');
+    final dio = Dio(BaseOptions(
+      connectTimeout: const Duration(seconds: 30),
+      receiveTimeout: const Duration(seconds: 30),
+      headers: {'Authorization': 'Bearer $apiToken'},
+    ));
+    try {
+      final form = FormData.fromMap({
+        'file': await MultipartFile.fromFile(filePath, filename: fileName),
+      });
+      final resp = await dio.post(
+          '${ApiConstants.baseUrl}${ApiConstants.chatUpload}', data: form);
+      vtLog('http', 'chat upload -> ${resp.statusCode}');
+      return resp.data is Map ? Map<String, dynamic>.from(resp.data) : null;
+    } on DioException catch (e) {
+      vtLog('http', 'chat upload FAILED: ${e.message}');
+      return null;
+    }
   }
 
   // ── SFU session ───────────────────────────────────────────

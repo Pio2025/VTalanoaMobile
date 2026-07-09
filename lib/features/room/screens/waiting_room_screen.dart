@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/avatar_initials.dart';
 import '../providers/room_provider.dart';
 import '../services/webrtc_service.dart' show WaitingParticipant;
 
@@ -89,7 +90,7 @@ class WaitingRoomScreen extends StatelessWidget {
                         backgroundImage: (p.photoUrl?.isNotEmpty ?? false) ? NetworkImage(p.photoUrl!) : null,
                         child: (p.photoUrl?.isNotEmpty ?? false)
                             ? null
-                            : Text(p.displayName.isNotEmpty ? p.displayName[0].toUpperCase() : '?',
+                            : Text(avatarInitials(p.displayName),
                                 style: const TextStyle(color: VtColors.primary, fontWeight: FontWeight.bold)),
                       ),
                       title: Text(p.displayName, style: const TextStyle(color: VtColors.text)),
