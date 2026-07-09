@@ -86,11 +86,11 @@ class WaitingRoomScreen extends StatelessWidget {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: VtColors.primary.withValues(alpha: 0.15),
-                        backgroundImage: p.photoUrl != null ? NetworkImage(p.photoUrl!) : null,
-                        child: p.photoUrl == null
-                            ? Text(p.displayName.isNotEmpty ? p.displayName[0].toUpperCase() : '?',
-                                style: const TextStyle(color: VtColors.primary, fontWeight: FontWeight.bold))
-                            : null,
+                        backgroundImage: (p.photoUrl?.isNotEmpty ?? false) ? NetworkImage(p.photoUrl!) : null,
+                        child: (p.photoUrl?.isNotEmpty ?? false)
+                            ? null
+                            : Text(p.displayName.isNotEmpty ? p.displayName[0].toUpperCase() : '?',
+                                style: const TextStyle(color: VtColors.primary, fontWeight: FontWeight.bold)),
                       ),
                       title: Text(p.displayName, style: const TextStyle(color: VtColors.text)),
                       trailing: Row(mainAxisSize: MainAxisSize.min, children: [

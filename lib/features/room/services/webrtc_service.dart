@@ -25,7 +25,7 @@ class WaitingParticipant {
   factory WaitingParticipant.fromJson(Map<String, dynamic> j) => WaitingParticipant(
     socketId: j['socketId'] as String? ?? '',
     displayName: j['displayName'] as String? ?? 'Participant',
-    photoUrl: j['photoUrl'] as String?,
+    photoUrl: (j['photoUrl'] as String?)?.isNotEmpty == true ? j['photoUrl'] as String? : null,
   );
 
   final String socketId;
