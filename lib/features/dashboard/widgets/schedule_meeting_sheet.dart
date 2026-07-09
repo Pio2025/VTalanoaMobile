@@ -25,7 +25,7 @@ class _ScheduleMeetingSheetState extends State<ScheduleMeetingSheet> {
 
   DateTime _start = DateTime.now().add(const Duration(hours: 1));
   DateTime _end   = DateTime.now().add(const Duration(hours: 2));
-  bool _waiting   = false;
+  bool _waiting   = true;
   bool _loading   = false;
   bool _requirePassword = false;
   bool _pwVisible = true;

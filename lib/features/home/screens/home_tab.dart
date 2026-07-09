@@ -56,6 +56,7 @@ class _HomeTabState extends State<HomeTab> {
         title: 'Instant Meeting',
         scheduledStart: now,
         scheduledEnd: now.add(const Duration(hours: 1)),
+        waitingRoom: true,
       );
       await _service.startMeeting(meeting.token);
       if (mounted) {
