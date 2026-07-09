@@ -195,7 +195,15 @@ class WebRtcService {
       ..on('admitted', _onAdmitted)
       ..on('you-are-waiting', (_) { vtLog('socket', 'you-are-waiting'); onYouAreWaiting?.call(); })
       ..on('removed-from-meeting', (_) { vtLog('socket', 'removed-from-meeting'); onRemoved?.call(); })
-      ..on('session-replaced', (_) { vtLog('socket', 'session-replaced'); onSessionReplaced?.call(); })
+      ..on('session-replaced', (_) {
+        vtLog('socket', 'session-replaced');
+        // Stop auto-reconnecting — without this, the client silently rejoins
+        // under the same identity and re-evicts whichever session just took
+        // over, causing the host seat to ping-pong between devices instead
+        // of cleanly handing off (mirrors web's socket.js behaviour).
+        _socket?.io.reconnection = false;
+        onSessionReplaced?.call();
+      })
       ..on('waiting-room-update', _onWaitingRoomUpdate)
       ..on('peer-joined', _onPeerJoined)
       ..on('peer-sfu-ready', _onPeerSfuReady)

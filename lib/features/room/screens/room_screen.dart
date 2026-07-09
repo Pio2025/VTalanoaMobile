@@ -280,7 +280,7 @@ class _RoomScreenState extends State<RoomScreen> {
                 onLeave: () => context.go('/meetings'),
                 icon: Icons.sync_problem_rounded,
                 iconColor: VtColors.text2,
-                message: "You reconnected from another tab or device",
+                message: "This meeting was opened on another device or tab, so you've been disconnected here",
               );
             }
 
