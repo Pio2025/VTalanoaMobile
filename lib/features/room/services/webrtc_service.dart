@@ -181,12 +181,13 @@ class WebRtcService {
       ..on('disconnect', (reason) => vtLog('socket', 'disconnected: $reason'))
       ..on('reconnect_attempt', (n) => vtLog('socket', 'reconnect_attempt #$n'))
       ..on('error', (e) => vtLog('socket', 'error event: $e'))
-      ..on('admitted', (_) { vtLog('socket', 'admitted'); onAdmitted?.call(); _startSfu(); })
+      ..on('admitted', _onAdmitted)
       ..on('you-are-waiting', (_) { vtLog('socket', 'you-are-waiting'); onYouAreWaiting?.call(); })
       ..on('removed-from-meeting', (_) { vtLog('socket', 'removed-from-meeting'); onRemoved?.call(); })
       ..on('session-replaced', (_) { vtLog('socket', 'session-replaced'); onSessionReplaced?.call(); })
       ..on('waiting-room-update', _onWaitingRoomUpdate)
       ..on('peer-joined', _onPeerJoined)
+      ..on('peer-sfu-ready', _onPeerSfuReady)
       ..on('peer-left', _onPeerLeft)
       ..on('sfu-offer', _onSfuOffer)
       ..on('speaking', _onSpeaking)
@@ -239,8 +240,51 @@ class WebRtcService {
     vtLog('socket', 'peer-joined socketId=$sid name=$name');
     _peerNames[sid] = name;
     onPeerJoined(sid, name);
-    // Subscribe to their tracks
-    if (_sessionId != null) _subscribeToTracks(sid, Map<String, dynamic>.from(d));
+    // Their SFU session (if any) arrives separately via 'peer-sfu-ready' —
+    // 'peer-joined' only ever carries identity, never track info.
+  }
+
+  // Existing peers who already have an active SFU session at the moment we
+  // join arrive here (in the 'peers' list); peers who publish afterwards are
+  // caught by _onPeerSfuReady instead.
+  Future<void> _onAdmitted(dynamic data) async {
+    vtLog('socket', 'admitted');
+    onAdmitted?.call();
+    final d = data is Map ? data : {};
+    final peers = (d['peers'] as List?) ?? [];
+    for (final p in peers) {
+      final pd = Map<String, dynamic>.from(p as Map);
+      final sid = pd['socketId'] as String?;
+      if (sid != null) _peerNames[sid] = pd['displayName'] as String? ?? 'Participant';
+    }
+    await _startSfu();
+    for (final p in peers) {
+      final pd = Map<String, dynamic>.from(p as Map);
+      final sid = pd['socketId'] as String?;
+      final sfuSessionId = pd['sfuSessionId'] as String?;
+      final trackNames = pd['sfuTrackNames'];
+      if (sid == null || sfuSessionId == null || trackNames is! Map) continue;
+      await _subscribeToTracks(sid, {
+        'sfuSessionId': sfuSessionId,
+        'videoTrackName': trackNames['video'],
+        'audioTrackName': trackNames['audio'],
+      });
+    }
+  }
+
+  // Another peer has just published to the SFU — subscribe to their tracks.
+  void _onPeerSfuReady(dynamic data) {
+    final d = data is Map ? data : {};
+    final sid = d['socketId'] as String?;
+    final sfuSessionId = d['sessionId'] as String?;
+    final trackNames = d['trackNames'];
+    vtLog('socket', 'peer-sfu-ready socketId=$sid sessionId=$sfuSessionId trackNames=$trackNames');
+    if (sid == null || sfuSessionId == null || trackNames is! Map) return;
+    _subscribeToTracks(sid, {
+      'sfuSessionId': sfuSessionId,
+      'videoTrackName': trackNames['video'],
+      'audioTrackName': trackNames['audio'],
+    });
   }
 
   void _onPeerLeft(dynamic data) {
@@ -336,6 +380,24 @@ class WebRtcService {
           'POST', '/sessions/$_sessionId/tracks/new', {'tracks': tracks});
       await _handleRenegotiation(tracksResp);
     }
+
+    // Tell the room we're ready so existing peers (and the host) can
+    // subscribe to us — without this, nobody else ever learns our
+    // sessionId/trackNames and our media never reaches them.
+    final videoTrack = tracks.firstWhere(
+        (t) => (t['trackName'] as String).startsWith('video'),
+        orElse: () => const <String, dynamic>{});
+    final audioTrack = tracks.firstWhere(
+        (t) => (t['trackName'] as String).startsWith('audio'),
+        orElse: () => const <String, dynamic>{});
+    vtLog('sfu', 'emitting sfu-session-ready sessionId=$_sessionId');
+    _socket?.emit('sfu-session-ready', {
+      'sessionId': _sessionId,
+      'trackNames': {
+        if (videoTrack['trackName'] != null) 'video': videoTrack['trackName'],
+        if (audioTrack['trackName'] != null) 'audio': audioTrack['trackName'],
+      },
+    });
   }
 
   Future<void> _subscribeToTracks(String socketId, Map<String, dynamic> peerData) async {
