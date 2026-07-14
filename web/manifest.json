@@ -3,7 +3,7 @@
     "short_name": "VTalanoa",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#FFFFFF",
+    "background_color": "#ffffff",
     "theme_color": "#1C75BC",
     "description": "VTalanoa — Video Meeting Platform",
     "orientation": "portrait-primary",

@@ -34,7 +34,7 @@ dependencies:
 
   # Media picking for chat
   image_picker: ^1.1.2
-  file_picker: ^8.1.4
+  file_picker: ^11.0.2
 
   # Image display
   cached_network_image: ^3.3.1
@@ -55,6 +55,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -63,3 +64,19 @@ flutter:
     - assets/icons/
     - assets/logos/
     - assets/navuli/
+
+flutter_launcher_icons:
+  image_path: "assets/icons/icon.png"
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  background_color_ios: "#ffffff"
+  web:
+    generate: true
+    image_path: "assets/icons/icon.png"
+    background_color: "#ffffff"
+    theme_color: "#1C75BC"
+  windows:
+    generate: true
+    image_path: "assets/icons/icon.png"
+    icon_size: 256
