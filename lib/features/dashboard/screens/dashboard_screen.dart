@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../../../core/models/meeting_model.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/meeting_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/join_meeting_sheet.dart';
 import '../widgets/meeting_card.dart';
 import '../widgets/schedule_meeting_sheet.dart';
 
@@ -124,8 +126,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   void _joinByToken() {
     final token = _joinCtrl.text.trim();
-    if (token.isEmpty) return;
-    context.push('/room/$token');
+    final knownName = context.read<AuthProvider>().user?.name;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => JoinMeetingSheet(
+        prefillMeetingId: token.isEmpty ? null : token,
+        knownName: knownName,
+      ),
+    );
   }
 
   @override

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
+import '../../../core/providers/auth_provider.dart';
 import '../../../core/services/meeting_service.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/join_meeting_sheet.dart';
 import '../../dashboard/widgets/schedule_meeting_sheet.dart';
-import '../widgets/join_by_code_dialog.dart';
 
 class HomeTab extends StatefulWidget {
   const HomeTab({super.key});
@@ -73,8 +75,17 @@ class _HomeTabState extends State<HomeTab> {
     if (mounted) setState(() => _starting = false);
   }
 
-  void _openJoinDialog() {
-    showDialog(context: context, builder: (_) => const JoinByCodeDialog());
+  void _openJoinSheet() {
+    final knownName = context.read<AuthProvider>().user?.name;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => JoinMeetingSheet(knownName: knownName),
+    );
   }
 
   void _openScheduleSheet() {
@@ -131,7 +142,7 @@ class _HomeTabState extends State<HomeTab> {
                           icon: Icons.add_rounded,
                           label: 'Join',
                           color: VtColors.primary,
-                          onTap: _openJoinDialog,
+                          onTap: _openJoinSheet,
                         ),
                         _HomeTile(
                           icon: Icons.event_rounded,

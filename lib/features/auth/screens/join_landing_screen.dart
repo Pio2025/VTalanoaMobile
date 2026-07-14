@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../core/providers/auth_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/vt_log.dart';
-import '../widgets/guest_join_sheet.dart';
+import '../../../shared/widgets/join_meeting_sheet.dart';
 
 /// Landing screen for `https://vtalanoa.com/join/:token` and `/room/:token`
 /// deep links. Authenticated users are redirected straight to `/room/:token`
@@ -25,12 +25,12 @@ class _JoinLandingScreenState extends State<JoinLandingScreen> {
   void _showGuestSheet() {
     if (_sheetShown) return;
     _sheetShown = true;
-    vtLog('deeplink', 'opening GuestJoinSheet prefill=${widget.token}');
+    vtLog('deeplink', 'opening JoinMeetingSheet prefill=${widget.token}');
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => GuestJoinSheet(prefillMeetingId: widget.token),
+      builder: (_) => JoinMeetingSheet(prefillMeetingId: widget.token),
     ).then((_) {
       if (mounted) context.go('/welcome');
     });

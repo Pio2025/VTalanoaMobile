@@ -59,9 +59,9 @@ class _DotLoaderState extends State<_DotLoader> with SingleTickerProviderStateMi
       builder: (_, __) {
         return Row(
           mainAxisSize: MainAxisSize.min,
-          children: List.generate(3, (i) {
-            // Stagger each dot's bounce by 1/3 of the cycle.
-            final t = (_ctrl.value - i * 0.2) % 1.0;
+          children: List.generate(6, (i) {
+            // Stagger each dot's bounce evenly across the cycle.
+            final t = (_ctrl.value - i * 0.12) % 1.0;
             final bounce = t < 0.5 ? (t * 2) : (1 - (t - 0.5) * 2);
             return Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),

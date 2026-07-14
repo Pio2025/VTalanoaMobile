@@ -1,11 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import '../../../core/services/meeting_service.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/vt_log.dart';
-import '../../../shared/widgets/vt_button.dart';
-import '../../../shared/widgets/vt_text_field.dart';
+import '../../core/services/meeting_service.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/utils/vt_log.dart';
+import 'vt_button.dart';
+import 'vt_text_field.dart';
 
 /// Extracts a meeting token/UUID from either a bare code or a pasted
 /// join/room link (e.g. "https://vtalanoa.com/join/abc123" -> "abc123").
@@ -16,18 +16,29 @@ String _extractMeetingId(String input) {
   return segments.isNotEmpty ? segments.last : trimmed;
 }
 
-class GuestJoinSheet extends StatefulWidget {
-  const GuestJoinSheet({super.key, this.prefillMeetingId});
+/// Unified "Join a Meeting" sheet used by every entry point in the app
+/// (landing screen, deep links, Home tab, Meetings tab). Validates the
+/// meeting ID up front and only asks for what isn't already known:
+/// - [knownName] null (guest) -> asks for a display name.
+/// - [knownName] set (signed-in user) -> name is skipped entirely.
+/// A password field is revealed once the meeting is known to require one,
+/// rather than only after a failed join attempt.
+class JoinMeetingSheet extends StatefulWidget {
+  const JoinMeetingSheet({super.key, this.prefillMeetingId, this.knownName});
 
   /// When opened from a shared meeting link, the meeting ID/token is already
-  /// known — pre-fill and lock that field so the guest only enters their name.
+  /// known — pre-fill and lock that field.
   final String? prefillMeetingId;
 
+  /// The signed-in user's display name, if any. When set, no name field is
+  /// shown and this value is sent as the join display name.
+  final String? knownName;
+
   @override
-  State<GuestJoinSheet> createState() => _GuestJoinSheetState();
+  State<JoinMeetingSheet> createState() => _JoinMeetingSheetState();
 }
 
-class _GuestJoinSheetState extends State<GuestJoinSheet> {
+class _JoinMeetingSheetState extends State<JoinMeetingSheet> {
   final _form     = GlobalKey<FormState>();
   late final _meeting = TextEditingController(text: widget.prefillMeetingId ?? '');
   final _name     = TextEditingController();
@@ -45,33 +56,58 @@ class _GuestJoinSheetState extends State<GuestJoinSheet> {
     super.dispose();
   }
 
+  void _showError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(message),
+      backgroundColor: VtColors.danger,
+    ));
+  }
+
   Future<void> _submit() async {
     if (!(_form.currentState?.validate() ?? false)) return;
     setState(() => _loading = true);
     final rawInput = _meeting.text;
+    final displayName = widget.knownName ?? _name.text.trim();
     try {
       final id = _extractMeetingId(rawInput);
       vtLog('join', 'resolving meeting id/link "$rawInput" -> extracted id "$id"');
-      final token = await _service.resolveMeeting(id);
-      vtLog('join', 'resolveMeeting OK -> token="$token"');
-      vtLog('join', 'joinAsGuest name="${_name.text.trim()}" hasPassword=${_password.text.trim().isNotEmpty}');
+      final resolved = await _service.resolveMeeting(id);
+      vtLog('join', 'resolveMeeting OK -> token="${resolved.token}" passwordRequired=${resolved.passwordRequired}');
+
+      if (resolved.passwordRequired && !_needsPassword) {
+        // Reveal the password field instead of attempting to join blind —
+        // avoids a wasted round trip and a confusing "invalid password"
+        // error the very first time the field appears.
+        setState(() { _needsPassword = true; _loading = false; });
+        return;
+      }
+
+      vtLog('join', 'joinAsGuest name="$displayName" hasPassword=${_password.text.trim().isNotEmpty}');
       final result = await _service.joinAsGuest(
-        token,
-        displayName: _name.text.trim(),
+        resolved.token,
+        displayName: displayName,
         password: _password.text.trim(),
       );
       vtLog('join', 'joinAsGuest OK -> meetingToken="${result.meetingToken}" roomToken="${result.roomToken}" waiting=${result.waiting}');
       if (!mounted) return;
       Navigator.pop(context);
-      context.push('/room/${result.meetingToken}', extra: {
-        'guestName': _name.text.trim(),
-        'guestToken': result.roomToken,
-        'waiting': result.waiting,
-        // The real, human-entered meeting ID (or token, if a link was
-        // pasted) — shown at the top of the room screen since a guest's
-        // JWT can't call the authenticated endpoint that resolves it.
-        'guestMeetingId': id,
-      });
+      if (widget.knownName != null) {
+        // Signed-in user: RoomScreen's existing signed-in path re-derives
+        // host/waiting-room status and its own api token — nothing extra
+        // to pass through.
+        context.push('/room/${result.meetingToken}');
+      } else {
+        context.push('/room/${result.meetingToken}', extra: {
+          'guestName': displayName,
+          'guestToken': result.roomToken,
+          'waiting': result.waiting,
+          // The real, human-entered meeting ID (or token, if a link was
+          // pasted) — shown at the top of the room screen since a guest's
+          // JWT can't call the authenticated endpoint that resolves it.
+          'guestMeetingId': id,
+        });
+      }
     } on DioException catch (e) {
       final status = e.response?.statusCode;
       final serverError = e.response?.data is Map
@@ -82,20 +118,12 @@ class _GuestJoinSheetState extends State<GuestJoinSheet> {
         setState(() => _needsPassword = true);
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(serverError ??
-              (status == 404 ? 'Meeting not found.' : 'Could not join meeting.')),
-          backgroundColor: VtColors.danger,
-        ));
+        _showError(serverError ??
+            (status == 404 ? 'Meeting not found.' : 'Could not join meeting.'));
       }
     } catch (e) {
       vtLog('join', 'FAILED unexpected error: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Could not join meeting. Check your connection and try again.'),
-          backgroundColor: VtColors.danger,
-        ));
-      }
+      _showError('Could not join meeting. Check your connection and try again.');
     }
     if (mounted) setState(() => _loading = false);
   }
@@ -148,20 +176,23 @@ class _GuestJoinSheetState extends State<GuestJoinSheet> {
                     ),
                   ]),
                 ),
-              const SizedBox(height: 14),
-              VtTextField(
-                controller: _name, label: 'Your name',
-                prefixIcon: Icons.person_outline_rounded,
-                textInputAction: _needsPassword ? TextInputAction.next : TextInputAction.done,
-                validator: (v) => (v?.trim().isEmpty ?? true) ? 'Your name is required' : null,
-                onFieldSubmitted: (_) => _needsPassword ? null : _submit(),
-              ),
+              if (widget.knownName == null) ...[
+                const SizedBox(height: 14),
+                VtTextField(
+                  controller: _name, label: 'Your name',
+                  prefixIcon: Icons.person_outline_rounded,
+                  textInputAction: _needsPassword ? TextInputAction.next : TextInputAction.done,
+                  validator: (v) => (v?.trim().isEmpty ?? true) ? 'Your name is required' : null,
+                  onFieldSubmitted: (_) => _needsPassword ? null : _submit(),
+                ),
+              ],
               if (_needsPassword) ...[
                 const SizedBox(height: 14),
                 VtTextField(
                   controller: _password, label: 'Meeting password',
                   prefixIcon: Icons.lock_outline_rounded,
                   obscure: true,
+                  autofocus: widget.knownName != null || widget.prefillMeetingId != null,
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _submit(),
                 ),

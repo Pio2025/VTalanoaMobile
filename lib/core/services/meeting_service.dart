@@ -87,10 +87,14 @@ class MeetingService {
       _api.dio.post(ApiConstants.endMeeting(token));
 
   /// Resolves a meeting UUID or token (whatever a user typed/pasted) to its
-  /// canonical meeting token.
-  Future<String> resolveMeeting(String idOrToken) async {
+  /// canonical meeting token, plus whether it requires a password.
+  Future<MeetingResolveResult> resolveMeeting(String idOrToken) async {
     final resp = await _api.dio.get(ApiConstants.resolveMeeting(idOrToken));
-    return resp.data['token'] as String;
+    final data = resp.data as Map<String, dynamic>;
+    return MeetingResolveResult(
+      token: data['token'] as String,
+      passwordRequired: data['password_required'] as bool? ?? false,
+    );
   }
 
   /// Joins a meeting without an account. Works for both signed-in users
@@ -119,6 +123,13 @@ class MeetingListPage {
 
   final List<MeetingModel> meetings;
   final bool hasMore;
+}
+
+class MeetingResolveResult {
+  const MeetingResolveResult({required this.token, required this.passwordRequired});
+
+  final String token;
+  final bool passwordRequired;
 }
 
 class GuestJoinResult {
