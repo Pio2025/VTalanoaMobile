@@ -36,6 +36,12 @@ dependencies:
   image_picker: ^1.1.2
   file_picker: ^11.0.2
 
+  # Emoji picker for chat input
+  emoji_picker_flutter: ^3.1.0
+
+  # AES-GCM for E2EE chat text (media E2EE uses flutter_webrtc's native FrameCryptor)
+  cryptography: ^2.7.0
+
   # Image display
   cached_network_image: ^3.3.1
 

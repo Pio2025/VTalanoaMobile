@@ -112,6 +112,7 @@ class _VtAppState extends State<VtApp> {
               guestWaitingRoom: extra?['waiting'] as bool? ?? false,
               guestMeetingId: extra?['guestMeetingId'] as String?,
               startWithVideo: extra?['startWithVideo'] as bool? ?? true,
+              meetingPassword: extra?['meetingPassword'] as String?,
             );
           },
         ),

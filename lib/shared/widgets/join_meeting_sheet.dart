@@ -94,9 +94,12 @@ class _JoinMeetingSheetState extends State<JoinMeetingSheet> {
       Navigator.pop(context);
       if (widget.knownName != null) {
         // Signed-in user: RoomScreen's existing signed-in path re-derives
-        // host/waiting-room status and its own api token — nothing extra
-        // to pass through.
-        context.push('/room/${result.meetingToken}');
+        // host/waiting-room status and its own api token. It only falls
+        // back to this typed password if the caller isn't the host (whose
+        // password is fetched server-side instead).
+        context.push('/room/${result.meetingToken}', extra: {
+          'meetingPassword': _password.text.trim(),
+        });
       } else {
         context.push('/room/${result.meetingToken}', extra: {
           'guestName': displayName,
@@ -106,6 +109,7 @@ class _JoinMeetingSheetState extends State<JoinMeetingSheet> {
           // pasted) — shown at the top of the room screen since a guest's
           // JWT can't call the authenticated endpoint that resolves it.
           'guestMeetingId': id,
+          'meetingPassword': _password.text.trim(),
         });
       }
     } on DioException catch (e) {

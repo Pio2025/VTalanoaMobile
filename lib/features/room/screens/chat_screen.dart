@@ -1,4 +1,5 @@
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:emoji_picker_flutter/emoji_picker_flutter.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -56,11 +57,30 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   final _ctrl   = TextEditingController();
   final _scroll = ScrollController();
+  final _focus  = FocusNode();
   String? _reactionPickerFor;
   bool _uploading = false;
+  bool _showEmojiPicker = false;
+
+  void _toggleEmojiPicker() {
+    if (!_showEmojiPicker) _focus.unfocus();
+    setState(() => _showEmojiPicker = !_showEmojiPicker);
+  }
 
   @override
-  void dispose() { _ctrl.dispose(); _scroll.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    context.read<RoomProvider>().markChatOpened();
+  }
+
+  @override
+  void dispose() {
+    context.read<RoomProvider>().markChatClosed();
+    _ctrl.dispose();
+    _scroll.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
 
   void _scrollToEndSoon() {
     Future.delayed(const Duration(milliseconds: 50), () {
@@ -159,54 +179,58 @@ class _ChatScreenState extends State<ChatScreen> {
       isScrollControlled: true,
       backgroundColor: VtColors.surface,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(
-          left: 16, right: 16, top: 16,
-          bottom: MediaQuery.of(ctx).viewInsets.bottom + 16,
-        ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Align(alignment: Alignment.centerLeft,
-              child: Text('Create a Poll',
-                  style: TextStyle(color: VtColors.text, fontWeight: FontWeight.bold, fontSize: 15))),
-          const SizedBox(height: 12),
-          _pollField(qCtrl, 'Ask a question…'),
-          const SizedBox(height: 8),
-          _pollField(optCtrls[0], 'Option 1'),
-          const SizedBox(height: 8),
-          _pollField(optCtrls[1], 'Option 2'),
-          const SizedBox(height: 8),
-          _pollField(optCtrls[2], 'Option 3 (optional)'),
-          const SizedBox(height: 8),
-          _pollField(optCtrls[3], 'Option 4 (optional)'),
-          const SizedBox(height: 16),
-          Row(children: [
-            Expanded(
-              child: ElevatedButton(
-                onPressed: () {
-                  final question = qCtrl.text.trim();
-                  final opts = optCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList();
-                  if (question.isEmpty) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('Please enter a question.')));
-                    return;
-                  }
-                  if (opts.length < 2) {
-                    ScaffoldMessenger.of(ctx).showSnackBar(
-                        const SnackBar(content: Text('Add at least 2 options.')));
-                    return;
-                  }
-                  context.read<RoomProvider>().createPoll(question, opts, creatorName: widget.selfName);
-                  Navigator.pop(ctx);
-                  _scrollToEndSoon();
-                },
-                style: ElevatedButton.styleFrom(backgroundColor: VtColors.primary, elevation: 0),
-                child: const Text('Send Poll'),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: EdgeInsets.only(
+            left: 16, right: 16, top: 16,
+            bottom: MediaQuery.of(ctx).viewInsets.bottom > 0
+                ? 16
+                : MediaQuery.of(ctx).padding.bottom + 16,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Align(alignment: Alignment.centerLeft,
+                child: Text('Create a Poll',
+                    style: TextStyle(color: VtColors.text, fontWeight: FontWeight.bold, fontSize: 15))),
+            const SizedBox(height: 12),
+            _pollField(qCtrl, 'Ask a question…'),
+            const SizedBox(height: 8),
+            _pollField(optCtrls[0], 'Option 1'),
+            const SizedBox(height: 8),
+            _pollField(optCtrls[1], 'Option 2'),
+            const SizedBox(height: 8),
+            _pollField(optCtrls[2], 'Option 3 (optional)'),
+            const SizedBox(height: 8),
+            _pollField(optCtrls[3], 'Option 4 (optional)'),
+            const SizedBox(height: 16),
+            Row(children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () {
+                    final question = qCtrl.text.trim();
+                    final opts = optCtrls.map((c) => c.text.trim()).where((s) => s.isNotEmpty).toList();
+                    if (question.isEmpty) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Please enter a question.')));
+                      return;
+                    }
+                    if (opts.length < 2) {
+                      ScaffoldMessenger.of(ctx).showSnackBar(
+                          const SnackBar(content: Text('Add at least 2 options.')));
+                      return;
+                    }
+                    context.read<RoomProvider>().createPoll(question, opts, creatorName: widget.selfName);
+                    Navigator.pop(ctx);
+                    _scrollToEndSoon();
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: VtColors.primary, elevation: 0),
+                  child: const Text('Send Poll'),
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+              const SizedBox(width: 8),
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+            ]),
           ]),
-        ]),
+        ),
       ),
     );
   }
@@ -236,13 +260,6 @@ class _ChatScreenState extends State<ChatScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: const Text('Chat', style: TextStyle(color: VtColors.text, fontSize: 17)),
-        actions: [
-          IconButton(
-            tooltip: 'Create poll',
-            icon: const Icon(Icons.bar_chart_rounded, color: VtColors.text2),
-            onPressed: _showPollSheet,
-          ),
-        ],
       ),
       body: Column(children: [
         if (_uploading) const LinearProgressIndicator(minHeight: 2, color: VtColors.primary),
@@ -300,11 +317,29 @@ class _ChatScreenState extends State<ChatScreen> {
               icon: const Icon(Icons.add_circle_outline_rounded),
               color: VtColors.text2,
             ),
+            IconButton(
+              tooltip: 'Emoji',
+              onPressed: _toggleEmojiPicker,
+              icon: Icon(_showEmojiPicker
+                  ? Icons.keyboard_alt_outlined
+                  : Icons.emoji_emotions_outlined),
+              color: VtColors.text2,
+            ),
+            IconButton(
+              tooltip: 'Create poll',
+              onPressed: _showPollSheet,
+              icon: const Icon(Icons.bar_chart_rounded),
+              color: VtColors.text2,
+            ),
             Expanded(
               child: TextField(
                 controller: _ctrl,
+                focusNode: _focus,
                 style: const TextStyle(fontSize: 14, color: VtColors.text),
                 minLines: 1, maxLines: 4,
+                onTap: () {
+                  if (_showEmojiPicker) setState(() => _showEmojiPicker = false);
+                },
                 onSubmitted: (_) => _send(),
                 decoration: InputDecoration(
                   hintText: 'Type a message…',
@@ -334,6 +369,21 @@ class _ChatScreenState extends State<ChatScreen> {
               ),
             ),
           ]),
+        ),
+        Offstage(
+          offstage: !_showEmojiPicker,
+          child: SizedBox(
+            height: 250,
+            child: EmojiPicker(
+              textEditingController: _ctrl,
+              config: const Config(
+                emojiViewConfig: EmojiViewConfig(backgroundColor: VtColors.surface),
+                bottomActionBarConfig: BottomActionBarConfig(backgroundColor: VtColors.surface),
+                categoryViewConfig: CategoryViewConfig(backgroundColor: VtColors.surface),
+                searchViewConfig: SearchViewConfig(backgroundColor: VtColors.surface),
+              ),
+            ),
+          ),
         ),
       ]),
     );
@@ -469,6 +519,16 @@ class _Bubble extends StatelessWidget {
   }
 
   Widget _buildContent(bool isSelf) {
+    if (msg.decryptFailed) {
+      return Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(Icons.lock_outline_rounded, size: 14,
+            color: isSelf ? Colors.white70 : VtColors.text3),
+        const SizedBox(width: 6),
+        Text('Encrypted message',
+            style: TextStyle(fontSize: 13, fontStyle: FontStyle.italic,
+                color: isSelf ? Colors.white70 : VtColors.text3)),
+      ]);
+    }
     if (msg.fileUrl != null && _isImage) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(10),

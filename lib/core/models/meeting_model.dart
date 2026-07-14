@@ -19,6 +19,11 @@ class MeetingModel {
   final bool waitingRoom;
   final String joinUrl;
 
+  /// The meeting's plaintext password, used to derive the E2EE key.
+  /// Only populated when the caller is the host — the backend strips it
+  /// for everyone else (see `Api\MeetingController::show()`).
+  final String? password;
+
   const MeetingModel({
     required this.meetingId,
     required this.uuid,
@@ -34,6 +39,7 @@ class MeetingModel {
     this.maxParticipants,
     required this.waitingRoom,
     required this.joinUrl,
+    this.password,
   });
 
   factory MeetingModel.fromJson(Map<String, dynamic> j) {
@@ -57,6 +63,7 @@ class MeetingModel {
       joinUrl:        (j['join_url'] as String?)?.isNotEmpty == true
           ? j['join_url']
           : '${ApiConstants.baseUrl}/join/$token',
+      password:       j['password'] as String?,
     );
   }
 

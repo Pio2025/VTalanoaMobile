@@ -39,7 +39,7 @@ class ControlsBar extends StatelessWidget {
                 active: true,
                 onTap: () => room.switchCamera(),
               ),
-              if (room.isHost) ...[
+              if (room.isHost && !room.e2eeEnabled) ...[
                 const SizedBox(width: 6),
                 _CtrlBtn(
                   icon: Icons.fiber_manual_record_rounded,

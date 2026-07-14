@@ -27,6 +27,7 @@ class RoomScreen extends StatefulWidget {
     this.guestWaitingRoom = false,
     this.guestMeetingId,
     this.startWithVideo = true,
+    this.meetingPassword,
   });
   final String token;
 
@@ -48,6 +49,11 @@ class RoomScreen extends StatefulWidget {
   /// so this is the best identifier available for guests.
   final String? guestMeetingId;
   final bool startWithVideo;
+
+  /// The meeting's plaintext password, if known at navigation time — used
+  /// to derive the E2EE key. Null means E2EE is off for this session (e.g.
+  /// the meeting has no password, or the entry point couldn't supply it).
+  final String? meetingPassword;
 
   @override
   State<RoomScreen> createState() => _RoomScreenState();
@@ -100,6 +106,7 @@ class _RoomScreenState extends State<RoomScreen> {
         waitingRoom:  widget.guestWaitingRoom,
         apiToken:     widget.guestToken ?? '',
         startWithVideo: widget.startWithVideo,
+        meetingPassword: widget.meetingPassword,
       );
     } else {
       final token = await ApiService.getToken() ?? '';
@@ -107,11 +114,17 @@ class _RoomScreenState extends State<RoomScreen> {
 
       bool isHost = false;
       bool waitingRoom = false;
+      String? meetingPassword = widget.meetingPassword;
       try {
         final meeting = await MeetingService().getMeeting(widget.token);
         isHost = meeting.hostUserId == user.userId;
         waitingRoom = meeting.waitingRoom;
         if (meeting.uuid.isNotEmpty) _displayId = meeting.uuid;
+        // The host's own password is only ever returned by show() for the
+        // host themselves — a non-host signed-in attendee falls back to
+        // whatever was threaded through navigation (e.g. typed on a join
+        // sheet), same as the guest flow.
+        meetingPassword = meeting.password ?? widget.meetingPassword;
         vtLog('room', 'signed-in flow: userId=${user.userId} hostUserId=${meeting.hostUserId} isHost=$isHost waitingRoom=$waitingRoom meetingUuid=${meeting.uuid}');
       } catch (e) {
         // If the lookup fails, fall back to treating the user as a regular
@@ -129,6 +142,7 @@ class _RoomScreenState extends State<RoomScreen> {
         waitingRoom:  waitingRoom,
         apiToken:     token,
         startWithVideo: widget.startWithVideo,
+        meetingPassword: meetingPassword,
       );
     }
     provider.onOpenWaitingRoom = () {
@@ -162,6 +176,7 @@ class _RoomScreenState extends State<RoomScreen> {
         waitingRoom:  result.waiting,
         apiToken:     result.roomToken,
         startWithVideo: widget.startWithVideo,
+        meetingPassword: _guestPasswordCtrl.text.trim(),
       );
       if (!mounted) return;
       provider.onOpenWaitingRoom = () {
@@ -447,7 +462,7 @@ class _TopBar extends StatelessWidget {
             ],
             _TopBarIconButton(
               icon: Icons.chat_bubble_outline_rounded,
-              badge: room.messages.isNotEmpty ? room.messages.length : null,
+              badge: room.unreadChatCount > 0 ? room.unreadChatCount : null,
               onTap: () => openChatScreen(context, room),
             ),
             if (room.isHost)
@@ -495,7 +510,7 @@ class _TopBarIconButton extends StatelessWidget {
               right: -4, top: -4,
               child: Container(
                 padding: const EdgeInsets.all(3),
-                decoration: const BoxDecoration(color: VtColors.primary, shape: BoxShape.circle),
+                decoration: const BoxDecoration(color: VtColors.danger, shape: BoxShape.circle),
                 child: Text('$badge',
                     style: const TextStyle(fontSize: 9, color: Colors.white, fontWeight: FontWeight.w700)),
               ),

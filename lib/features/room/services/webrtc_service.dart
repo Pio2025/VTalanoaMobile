@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:cryptography/cryptography.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'package:socket_io_client/socket_io_client.dart' as sio;
@@ -33,6 +35,7 @@ class IncomingChatMessage {
     this.fileName,
     this.fileType,
     this.fileSize,
+    this.decryptFailed = false,
   });
 
   final String socketId;
@@ -44,6 +47,7 @@ class IncomingChatMessage {
   final String? fileName;
   final String? fileType;
   final int? fileSize;
+  final bool decryptFailed;
 }
 
 class WaitingParticipant {
@@ -108,6 +112,7 @@ class WebRtcService {
     this.onPollCreated,
     this.onPollVoteUpdate,
     this.startWithVideo = true,
+    this.meetingPassword,
   });
 
   final String meetingToken;
@@ -144,10 +149,27 @@ class WebRtcService {
   final PollCreatedCallback? onPollCreated;
   final PollVoteCallback? onPollVoteUpdate;
 
+  /// The meeting's plaintext password, used as E2EE key material when
+  /// present. Null/blank means E2EE is off (matches pre-existing meetings
+  /// with no password, and any entry point that hasn't threaded it through).
+  final String? meetingPassword;
+
+  bool get e2eeEnabled => meetingPassword != null && meetingPassword!.trim().isNotEmpty;
+
   sio.Socket? _socket;
   RTCPeerConnection? _pc;
   MediaStream? _localStream;
+  Timer? _bitrateTimer;
+  int _bitrateTier = 0;
+  int _consecutiveBad = 0;
+  int _consecutiveGood = 0;
   String? _sessionId;
+
+  // ── E2EE ───────────────────────────────────────────────────
+  KeyProvider? _keyProvider;
+  final Map<String, FrameCryptor> _frameCryptors = {};
+  SecretKey? _chatKey;
+  final _chatCipher = AesGcm.with256bits();
 
   final Map<String, String> _peerNames   = {};
   final Map<String, String> _midToPeer   = {};
@@ -177,6 +199,7 @@ class WebRtcService {
     // socket being connected).
     await _createPeerConnection();
     _connectSocket();
+    _bitrateTimer = Timer.periodic(const Duration(seconds: 4), (_) => _adaptBitrate());
   }
 
   Future<void> _acquireLocalMedia() async {
@@ -205,6 +228,10 @@ class WebRtcService {
 
   // ── RTCPeerConnection ─────────────────────────────────────
   Future<void> _createPeerConnection() async {
+    if (e2eeEnabled) {
+      await _setupE2ee();
+    }
+
     _pc = await createPeerConnection({
       'iceServers': [
         {'urls': 'stun:stun.cloudflare.com:3478'},
@@ -214,12 +241,71 @@ class WebRtcService {
       'bundlePolicy': 'max-bundle',
     });
 
-    _localStream?.getTracks().forEach((t) => _pc!.addTrack(t, _localStream!));
+    for (final t in _localStream?.getTracks() ?? const <MediaStreamTrack>[]) {
+      final sender = await _pc!.addTrack(t, _localStream!);
+      if (e2eeEnabled && _keyProvider != null) {
+        final fc = await frameCryptorFactory.createFrameCryptorForRtpSender(
+          participantId: 'local-${t.kind}',
+          sender: sender,
+          algorithm: Algorithm.kAesGcm,
+          keyProvider: _keyProvider!,
+        );
+        await fc.setEnabled(true);
+        _frameCryptors['local-${t.kind}'] = fc;
+      }
+    }
 
     _pc!.onTrack = _handleTrack;
     _pc!.onIceConnectionState = (state) => vtLog('rtc', 'iceConnectionState -> $state');
     _pc!.onConnectionState = (state) => vtLog('rtc', 'peerConnectionState -> $state');
-    vtLog('rtc', 'RTCPeerConnection created');
+    vtLog('rtc', 'RTCPeerConnection created (e2ee=$e2eeEnabled)');
+  }
+
+  /// Derives shared key material for both media frame encryption
+  /// (FrameCryptor/KeyProvider) and chat text (AES-GCM) from the meeting
+  /// password — the library's own PBKDF2 key derivation handles turning a
+  /// human-readable password into real key material for media frames, and
+  /// a SHA-256 digest gives AesGcm the fixed-length key it requires for text.
+  Future<void> _setupE2ee() async {
+    final password = meetingPassword!.trim();
+    _keyProvider = await frameCryptorFactory.createDefaultKeyProvider(KeyProviderOptions(
+      sharedKey: true,
+      ratchetSalt: Uint8List.fromList(utf8.encode('vtalanoa-e2ee-ratchet-salt')),
+      ratchetWindowSize: 8,
+    ));
+    await _keyProvider!.setSharedKey(key: Uint8List.fromList(utf8.encode(password)));
+
+    final digest = await Sha256().hash(utf8.encode(password));
+    _chatKey = SecretKey(digest.bytes);
+  }
+
+  Future<String> _encryptChatText(String text) async {
+    if (_chatKey == null) return text;
+    final nonce = _chatCipher.newNonce();
+    final box = await _chatCipher.encrypt(utf8.encode(text), secretKey: _chatKey!, nonce: nonce);
+    return base64Encode(utf8.encode(jsonEncode({
+      'n': base64Encode(box.nonce),
+      'c': base64Encode(box.cipherText),
+      'm': base64Encode(box.mac.bytes),
+    })));
+  }
+
+  /// Returns null when decryption fails (wrong/missing key), signalling the
+  /// caller to show an "Encrypted message" placeholder instead of raw text.
+  Future<String?> _decryptChatText(String payload) async {
+    if (_chatKey == null) return null;
+    try {
+      final j = jsonDecode(utf8.decode(base64Decode(payload))) as Map;
+      final box = SecretBox(
+        base64Decode(j['c'] as String),
+        nonce: base64Decode(j['n'] as String),
+        mac: Mac(base64Decode(j['m'] as String)),
+      );
+      final clear = await _chatCipher.decrypt(box, secretKey: _chatKey!);
+      return utf8.decode(clear);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _handleTrack(RTCTrackEvent e) async {
@@ -228,6 +314,20 @@ class WebRtcService {
     final socketId = _midToPeer[mid];
     if (socketId == null) return;
     final name = _peerNames[socketId] ?? 'Participant';
+
+    if (e2eeEnabled && _keyProvider != null && e.receiver != null) {
+      final key = '$socketId-${e.track.kind}';
+      if (!_frameCryptors.containsKey(key)) {
+        final fc = await frameCryptorFactory.createFrameCryptorForRtpReceiver(
+          participantId: key,
+          receiver: e.receiver!,
+          algorithm: Algorithm.kAesGcm,
+          keyProvider: _keyProvider!,
+        );
+        await fc.setEnabled(true);
+        _frameCryptors[key] = fc;
+      }
+    }
 
     // The SFU delivers each subscribed track (video, audio) as its own
     // onTrack event with its own MediaStream — accumulate them into one
@@ -536,14 +636,24 @@ class WebRtcService {
     onSpeaking(sid, speaking);
   }
 
-  void _onChatMessage(dynamic data) {
+  Future<void> _onChatMessage(dynamic data) async {
     final d = data is Map ? data : {};
     final sid       = d['socketId'] as String? ?? '';
     final name      = d['senderName'] as String? ?? 'Participant';
-    final message   = d['message'] as String? ?? '';
+    var message     = d['message'] as String? ?? '';
     final ts        = d['timestamp'] as String?;
     final time      = ts != null ? (DateTime.tryParse(ts) ?? DateTime.now()) : DateTime.now();
     final messageId = d['messageId'] as String? ?? '';
+    var decryptFailed = false;
+    if (d['encrypted'] == true && message.isNotEmpty) {
+      final decrypted = await _decryptChatText(message);
+      if (decrypted == null) {
+        decryptFailed = true;
+        message = '';
+      } else {
+        message = decrypted;
+      }
+    }
     vtLog('socket', 'chat-message from=$sid name=$name');
     onChatMessage?.call(IncomingChatMessage(
       socketId: sid,
@@ -555,6 +665,7 @@ class WebRtcService {
       fileName: d['fileName'] as String?,
       fileType: d['fileType'] as String?,
       fileSize: d['fileSize'] is int ? d['fileSize'] as int : int.tryParse('${d['fileSize']}'),
+      decryptFailed: decryptFailed,
     ));
   }
 
@@ -598,18 +709,25 @@ class WebRtcService {
   }
 
   /// Broadcasts a chat message to the room; the sender shows it locally via its own echo.
-  void sendChatMessage({
+  Future<void> sendChatMessage({
     required String messageId,
     String message = '',
     String? fileUrl,
     String? fileName,
     String? fileType,
     int? fileSize,
-  }) {
+  }) async {
+    var outMessage = message;
+    var encrypted = false;
+    if (e2eeEnabled && message.isNotEmpty) {
+      outMessage = await _encryptChatText(message);
+      encrypted = true;
+    }
     vtLog('socket', 'emit chat-message messageId=$messageId message="$message" file=$fileUrl');
     _socket?.emit('chat-message', {
       'messageId': messageId,
-      'message': message,
+      'message': outMessage,
+      if (encrypted) 'encrypted': true,
       if (fileUrl != null) 'fileUrl': fileUrl,
       if (fileName != null) 'fileName': fileName,
       if (fileType != null) 'fileType': fileType,
@@ -784,6 +902,87 @@ class WebRtcService {
     }
   }
 
+  // ── Adaptive bitrate ──────────────────────────────────────
+  // Uplink-only: periodically reads the remote side's reception stats for
+  // our outgoing video (remote-inbound-rtp: fractionLost / roundTripTime)
+  // and steps the local video encoding up/down through discrete quality
+  // tiers. Receive-side/simulcast-layer selection isn't supported by the
+  // Cloudflare Calls SFU proxy endpoints this app uses, so it's out of
+  // scope here.
+  static const _bitrateTiers = [
+    (maxBitrate: 1200000, scaleResolutionDownBy: 1.0, maxFramerate: 30), // 0 high
+    (maxBitrate: 600000,  scaleResolutionDownBy: 1.5, maxFramerate: 24), // 1 medium
+    (maxBitrate: 200000,  scaleResolutionDownBy: 3.0, maxFramerate: 15), // 2 low
+  ];
+
+  Future<void> _adaptBitrate() async {
+    if (_pc == null) return;
+    RTCRtpSender? videoSender;
+    for (final s in await _pc!.getSenders()) {
+      if (s.track?.kind == 'video') { videoSender = s; break; }
+    }
+    if (videoSender == null) return;
+
+    double? fractionLost;
+    double? rttMs;
+    try {
+      for (final r in await videoSender.getStats()) {
+        if (r.type == 'remote-inbound-rtp') {
+          fractionLost = (r.values['fractionLost'] as num?)?.toDouble();
+          final rtt = (r.values['roundTripTime'] as num?)?.toDouble();
+          if (rtt != null) rttMs = rtt * 1000;
+        }
+      }
+    } catch (e) {
+      vtLog('rtc', 'adaptive bitrate getStats failed: $e');
+      return;
+    }
+
+    final bad = (fractionLost != null && fractionLost > 0.08) ||
+        (rttMs != null && rttMs > 400);
+    final good = (fractionLost == null || fractionLost < 0.02) &&
+        (rttMs == null || rttMs < 200);
+
+    if (bad) {
+      _consecutiveGood = 0;
+      _consecutiveBad++;
+    } else if (good) {
+      _consecutiveBad = 0;
+      _consecutiveGood++;
+    } else {
+      _consecutiveBad = 0;
+      _consecutiveGood = 0;
+    }
+
+    if (_consecutiveBad >= 2 && _bitrateTier < _bitrateTiers.length - 1) {
+      _bitrateTier++;
+      _consecutiveBad = 0;
+      await _applyBitrateTier(videoSender, _bitrateTier);
+    } else if (_consecutiveGood >= 3 && _bitrateTier > 0) {
+      _bitrateTier--;
+      _consecutiveGood = 0;
+      await _applyBitrateTier(videoSender, _bitrateTier);
+    }
+  }
+
+  Future<void> _applyBitrateTier(RTCRtpSender sender, int tier) async {
+    final t = _bitrateTiers[tier];
+    final params = sender.parameters;
+    final encodings = params.encodings ?? [RTCRtpEncoding()];
+    for (final enc in encodings) {
+      enc.maxBitrate = t.maxBitrate;
+      enc.scaleResolutionDownBy = t.scaleResolutionDownBy;
+      enc.maxFramerate = t.maxFramerate;
+    }
+    params.encodings = encodings;
+    try {
+      await sender.setParameters(params);
+      vtLog('rtc', 'adaptive bitrate -> tier $tier (maxBitrate=${t.maxBitrate})');
+    } catch (e) {
+      vtLog('rtc', 'adaptive bitrate setParameters failed: $e');
+    }
+  }
+
   // ── Controls ──────────────────────────────────────────────
   void toggleCam() {
     _camEnabled = !_camEnabled;
@@ -808,8 +1007,14 @@ class WebRtcService {
   // ── Cleanup ───────────────────────────────────────────────
   Future<void> dispose() async {
     vtLog('rtc', 'dispose()');
+    _bitrateTimer?.cancel();
     _socket?.disconnect();
     _socket?.dispose();
+    for (final fc in _frameCryptors.values) {
+      await fc.dispose();
+    }
+    _frameCryptors.clear();
+    await _keyProvider?.dispose();
     _localStream?.getTracks().forEach((t) => t.stop());
     await _localStream?.dispose();
     await _pc?.close();

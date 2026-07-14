@@ -36,6 +36,7 @@ class ChatMessage {
   final String? fileType;
   final int? fileSize;
   final String? pollId;
+  final bool decryptFailed;
 
   const ChatMessage({
     required this.senderId,
@@ -48,6 +49,7 @@ class ChatMessage {
     this.fileType,
     this.fileSize,
     this.pollId,
+    this.decryptFailed = false,
   });
 }
 
@@ -79,6 +81,7 @@ class RoomProvider extends ChangeNotifier {
     required bool waitingRoom,
     required String apiToken,
     bool startWithVideo = true,
+    String? meetingPassword,
   }) : _isWaitingForAdmission = waitingRoom && !isHost {
     _svc = WebRtcService(
       meetingToken: meetingToken,
@@ -89,6 +92,7 @@ class RoomProvider extends ChangeNotifier {
       waitingRoom:  waitingRoom,
       apiToken:     apiToken,
       startWithVideo: startWithVideo,
+      meetingPassword: meetingPassword,
       onRemoteTrack: _onRemoteTrack,
       onPeerLeft:    _onPeerLeft,
       onPeerJoined:  _onPeerJoined,
@@ -120,6 +124,7 @@ class RoomProvider extends ChangeNotifier {
   MediaStream? get localStream => _svc.localStream;
   bool get camEnabled          => _svc.camEnabled;
   bool get micEnabled          => _svc.micEnabled;
+  bool get e2eeEnabled         => _svc.e2eeEnabled;
 
   final List<RemotePeer> _peers        = [];
   final List<ChatMessage> _messages    = [];
@@ -137,6 +142,8 @@ class RoomProvider extends ChangeNotifier {
   bool _isRecording = false;
   bool _handRaised = false;
   bool _disposed = false;
+  int _unreadChatCount = 0;
+  bool _chatScreenOpen = false;
 
   /// Assigned by the UI (RoomScreen) so the provider can trigger navigation
   /// to the full-screen waiting room from a flash-message action, without
@@ -150,6 +157,7 @@ class RoomProvider extends ChangeNotifier {
 
   List<RemotePeer> get peers    => List.unmodifiable(_peers);
   List<ChatMessage> get messages => List.unmodifiable(_messages);
+  int get unreadChatCount        => _unreadChatCount;
   bool get isLoading            => _isLoading;
   String? get error             => _error;
   List<WaitingParticipant> get waitingList => List.unmodifiable(_waitingList);
@@ -321,8 +329,22 @@ class RoomProvider extends ChangeNotifier {
       fileName: msg.fileName,
       fileType: msg.fileType,
       fileSize: msg.fileSize,
+      decryptFailed: msg.decryptFailed,
     ));
+    if (!_chatScreenOpen) _unreadChatCount++;
     notifyListeners();
+  }
+
+  /// Called by ChatScreen when it opens/closes, so the unread badge only
+  /// counts messages that arrived while the user wasn't looking at them.
+  void markChatOpened() {
+    _chatScreenOpen = true;
+    _unreadChatCount = 0;
+    notifyListeners();
+  }
+
+  void markChatClosed() {
+    _chatScreenOpen = false;
   }
 
   void _applyReaction(String messageId, String emoji, String socketId) {
@@ -370,6 +392,7 @@ class RoomProvider extends ChangeNotifier {
       senderId: 'remote', senderName: creatorName ?? 'Participant',
       text: '', time: DateTime.now(), pollId: pollId,
     ));
+    if (!_chatScreenOpen) _unreadChatCount++;
     notifyListeners();
   }
 
