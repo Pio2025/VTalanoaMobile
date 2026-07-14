@@ -153,6 +153,7 @@ class WebRtcService {
   final Map<String, String> _midToPeer   = {};
   final Map<String, String> _midToKind   = {};
   final Map<String, MediaStream> _peers  = {};
+  final Map<String, Future<MediaStream>> _peerStreamFutures = {};
 
   late bool _camEnabled = startWithVideo;
   bool _micEnabled = true;
@@ -233,11 +234,20 @@ class WebRtcService {
     // persistent stream per peer instead of replacing it wholesale, otherwise
     // whichever track arrives last wipes out the other (e.g. an audio track
     // arriving after video leaves the peer's tile with no video at all).
-    var stream = _peers[socketId];
-    if (stream == null) {
-      stream = await createLocalMediaStream('remote-$socketId');
-      _peers[socketId] = stream;
+    //
+    // Both tracks of a newly-subscribed peer arrive back-to-back from the
+    // same renegotiation, so a second onTrack event can fire before the
+    // first call's `await createLocalMediaStream` resolves. Reserve the
+    // Future synchronously (before any await) so a racing call awaits the
+    // same pending stream instead of creating its own, which would silently
+    // strand one of the two tracks in an orphaned stream nobody renders.
+    var streamFuture = _peerStreamFutures[socketId];
+    if (streamFuture == null) {
+      streamFuture = createLocalMediaStream('remote-$socketId');
+      _peerStreamFutures[socketId] = streamFuture;
     }
+    final stream = await streamFuture;
+    _peers[socketId] = stream;
     for (final t in stream.getTracks().where((t) => t.kind == e.track.kind).toList()) {
       await stream.removeTrack(t);
     }
@@ -500,6 +510,7 @@ class WebRtcService {
     final stream = _peers.remove(sid);
     stream?.getTracks().forEach((t) => t.stop());
     stream?.dispose();
+    _peerStreamFutures.remove(sid);
     _peerNames.remove(sid);
     onPeerLeft(sid, d['displayName'] as String? ?? '');
   }
