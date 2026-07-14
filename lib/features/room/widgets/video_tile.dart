@@ -44,9 +44,12 @@ class _VideoTileState extends State<VideoTile> {
   @override
   void didUpdateWidget(VideoTile old) {
     super.didUpdateWidget(old);
-    if (old.stream != widget.stream) {
-      _renderer.srcObject = widget.stream;
-    }
+    // Re-bind unconditionally, even if `widget.stream` is the same object as
+    // before: remote peer streams are mutated in place as SFU tracks arrive
+    // one at a time (video/audio in separate onTrack events), so a reference
+    // check here would miss a track added to a stream the renderer already
+    // considers "set" and never render it.
+    _renderer.srcObject = widget.stream;
   }
 
   @override

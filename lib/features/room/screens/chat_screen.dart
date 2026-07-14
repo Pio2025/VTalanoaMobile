@@ -108,7 +108,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _pickFile() async {
     Navigator.pop(context);
-    final result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.pickFiles(
       type: FileType.custom, allowedExtensions: _allowedFileExtensions);
     final f = result?.files.single;
     if (f?.path == null) return;
@@ -280,7 +280,15 @@ class _ChatScreenState extends State<ChatScreen> {
         Container(
           padding: EdgeInsets.only(
             left: 8, right: 8, top: 8,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 8,
+            // Scaffold already resizes the body to clear the keyboard, so
+            // once it's open a flat 8 is enough — adding viewInsets.bottom
+            // again on top of that double-counts it and overflows the
+            // Column. When the keyboard is closed, add the system nav
+            // bar/gesture-pill safe area instead so the bar isn't hidden
+            // under it.
+            bottom: MediaQuery.of(context).viewInsets.bottom > 0
+                ? 8
+                : MediaQuery.of(context).padding.bottom + 8,
           ),
           decoration: const BoxDecoration(
             color: VtColors.surface,

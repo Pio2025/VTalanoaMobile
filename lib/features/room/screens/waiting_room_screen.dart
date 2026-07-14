@@ -88,6 +88,7 @@ class WaitingRoomScreen extends StatelessWidget {
                       leading: CircleAvatar(
                         backgroundColor: VtColors.primary.withValues(alpha: 0.15),
                         backgroundImage: (p.photoUrl?.isNotEmpty ?? false) ? NetworkImage(p.photoUrl!) : null,
+                        onBackgroundImageError: (p.photoUrl?.isNotEmpty ?? false) ? (_, __) {} : null,
                         child: (p.photoUrl?.isNotEmpty ?? false)
                             ? null
                             : Text(avatarInitials(p.displayName),
@@ -104,6 +105,9 @@ class WaitingRoomScreen extends StatelessWidget {
                           onPressed: () => room.admitParticipant(p.socketId),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: VtColors.primary, elevation: 0,
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                           ),
                           child: const Text('Admit'),

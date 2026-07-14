@@ -19,8 +19,9 @@ class _JoinByCodeDialogState extends State<JoinByCodeDialog> {
   }
 
   void _submit() {
-    final token = _ctrl.text.trim();
-    if (token.isEmpty) return;
+    final raw = _ctrl.text.trim();
+    if (raw.isEmpty) return;
+    final token = raw.contains('/') ? Uri.parse(raw).pathSegments.last : raw;
     Navigator.pop(context);
     context.push('/room/$token');
   }

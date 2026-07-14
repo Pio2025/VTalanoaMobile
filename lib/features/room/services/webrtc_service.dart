@@ -52,12 +52,25 @@ class WaitingParticipant {
   factory WaitingParticipant.fromJson(Map<String, dynamic> j) => WaitingParticipant(
     socketId: j['socketId'] as String? ?? '',
     displayName: j['displayName'] as String? ?? 'Participant',
-    photoUrl: (j['photoUrl'] as String?)?.isNotEmpty == true ? j['photoUrl'] as String? : null,
+    photoUrl: _validPhotoUrl(j['photoUrl'] as String?),
   );
 
   final String socketId;
   final String displayName;
   final String? photoUrl;
+}
+
+/// Only accept syntactically valid absolute http(s) URLs — anything else
+/// (empty string, relative path, malformed value) is treated as "no photo"
+/// so it never reaches [NetworkImage], whose load failures can crash the
+/// render tree instead of being caught by Flutter's error widget.
+String? _validPhotoUrl(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final uri = Uri.tryParse(raw);
+  if (uri == null || !uri.isAbsolute || (uri.scheme != 'http' && uri.scheme != 'https')) {
+    return null;
+  }
+  return raw;
 }
 
 class WebRtcService {
@@ -208,18 +221,29 @@ class WebRtcService {
     vtLog('rtc', 'RTCPeerConnection created');
   }
 
-  void _handleTrack(RTCTrackEvent e) {
+  Future<void> _handleTrack(RTCTrackEvent e) async {
     final mid = e.transceiver?.mid;
     if (mid == null) return;
     final socketId = _midToPeer[mid];
     if (socketId == null) return;
     final name = _peerNames[socketId] ?? 'Participant';
 
-    // Use the stream from the track event directly; skip if no stream attached
-    final stream = e.streams.firstOrNull;
-    if (stream == null) return;
+    // The SFU delivers each subscribed track (video, audio) as its own
+    // onTrack event with its own MediaStream — accumulate them into one
+    // persistent stream per peer instead of replacing it wholesale, otherwise
+    // whichever track arrives last wipes out the other (e.g. an audio track
+    // arriving after video leaves the peer's tile with no video at all).
+    var stream = _peers[socketId];
+    if (stream == null) {
+      stream = await createLocalMediaStream('remote-$socketId');
+      _peers[socketId] = stream;
+    }
+    for (final t in stream.getTracks().where((t) => t.kind == e.track.kind).toList()) {
+      await stream.removeTrack(t);
+    }
+    await stream.addTrack(e.track);
+
     vtLog('rtc', 'onTrack mid=$mid socketId=$socketId name=$name kind=${e.track.kind}');
-    _peers[socketId] = stream;
     onRemoteTrack(socketId, stream, name);
   }
 
@@ -473,7 +497,9 @@ class WebRtcService {
     final d = data is Map ? data : {};
     final sid = d['socketId'] as String? ?? '';
     vtLog('socket', 'peer-left socketId=$sid');
-    _peers.remove(sid);
+    final stream = _peers.remove(sid);
+    stream?.getTracks().forEach((t) => t.stop());
+    stream?.dispose();
     _peerNames.remove(sid);
     onPeerLeft(sid, d['displayName'] as String? ?? '');
   }
